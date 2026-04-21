@@ -3,25 +3,116 @@
 /* ── Annotate button ─────────────────────────────────────────────────────── */
 
 #wa-annotate-btn {
+  display: none; /* shown as flex via JS */
   position: fixed !important;
   z-index: 2147483647 !important;
-  background: #5b4ae8 !important;
+  flex-direction: row !important;
+  align-items: stretch !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.28) !important;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  pointer-events: auto !important;
+  min-width: 180px !important;
+}
+
+.wa-btn-half {
+  flex: 1 1 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px !important;
+  padding: 8px 14px !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  transition: flex 0.2s ease !important;
+  user-select: none !important;
   color: #fff !important;
   border: none !important;
-  border-radius: 6px !important;
-  padding: 7px 13px !important;
-  font-size: 13px !important;
-  font-family: system-ui, -apple-system, sans-serif !important;
-  font-weight: 500 !important;
-  cursor: pointer !important;
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25) !important;
-  white-space: nowrap !important;
-  line-height: 1.4 !important;
-  transition: background 0.15s ease !important;
+}
+
+#wa-btn-custom {
+  background: #3d2f8f !important;
+}
+
+#wa-btn-basic {
+  background: #5b4ae8 !important;
+}
+
+/* Hover expand: the hovered half grows, sibling shrinks */
+#wa-annotate-btn:has(#wa-btn-custom:hover) #wa-btn-custom {
+  flex: 2.5 1 0 !important;
+}
+#wa-annotate-btn:has(#wa-btn-custom:hover) #wa-btn-basic {
+  flex: 0.6 1 0 !important;
+}
+#wa-annotate-btn:has(#wa-btn-basic:hover) #wa-btn-basic {
+  flex: 2.5 1 0 !important;
+}
+#wa-annotate-btn:has(#wa-btn-basic:hover) #wa-btn-custom {
+  flex: 0.6 1 0 !important;
+}
+
+.wa-btn-icon {
+  flex-shrink: 0 !important;
+}
+
+.wa-btn-label {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.wa-btn-divider {
+  width: 1px !important;
+  background: rgba(255, 255, 255, 0.2) !important;
+  flex-shrink: 0 !important;
+}
+
+/* ── Custom prompt input ─────────────────────────────────────────────────── */
+
+#wa-custom-input {
+  display: none; /* shown as flex via JS */
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 6px !important;
+  background: #fff !important;
+  border: 2px solid #5b4ae8 !important;
+  border-radius: 8px !important;
+  padding: 6px 8px !important;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.2) !important;
+  width: 300px !important;
   pointer-events: auto !important;
 }
 
-#wa-annotate-btn:hover {
+#wa-custom-prompt {
+  flex: 1 !important;
+  border: none !important;
+  outline: none !important;
+  font-size: 13px !important;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  color: #1a1a2e !important;
+  background: transparent !important;
+  padding: 2px 4px !important;
+}
+
+#wa-custom-submit {
+  background: #5b4ae8 !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 5px !important;
+  padding: 4px 10px !important;
+  font-size: 14px !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  transition: background 0.15s !important;
+}
+
+#wa-custom-submit:hover {
   background: #4a3bd4 !important;
 }
 
@@ -279,6 +370,19 @@ mark.wa-highlight.wa-active {
 .wa-source-link:hover {
   background: rgba(91, 74, 232, 0.18) !important;
   text-decoration: none !important;
+}
+
+.wa-custom-tag {
+  font-size: 11px !important;
+  color: #3d2f8f !important;
+  background: rgba(61, 47, 143, 0.08) !important;
+  border-radius: 4px !important;
+  padding: 3px 7px !important;
+  margin: 0 0 6px 0 !important;
+  font-style: italic !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
 }
 
 .wa-orphan-note {

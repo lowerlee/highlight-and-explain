@@ -12,7 +12,7 @@ function normalizeUrl(url) {
   }
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   switch (message.type) {
     case 'EXPLAIN':
       handleExplain(message.payload).then(sendResponse);
@@ -32,13 +32,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-async function handleExplain({ selectedText, pageTitle, surroundingContext }) {
+async function handleExplain({ selectedText, pageTitle, surroundingContext, customPrompt }) {
   const { geminiApiKey } = await chrome.storage.sync.get('geminiApiKey');
   if (!geminiApiKey) {
     return { error: 'No API key configured. Click the extension icon to add your Gemini API key.' };
   }
 
   const url = `${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent?key=${geminiApiKey}`;
+
+  const userMessage = customPrompt
+    ? `This is the text I highlighted on a webpage:\n\n"${selectedText}"\n\nMy question: ${customPrompt}`
+    : `Please explain this highlighted text:\n\n"${selectedText}"\n\nSurrounding context: ...${surroundingContext}...`;
 
   try {
     const res = await fetch(url, {
@@ -47,14 +51,12 @@ async function handleExplain({ selectedText, pageTitle, surroundingContext }) {
       body: JSON.stringify({
         systemInstruction: {
           parts: [{
-            text: `You are a knowledgeable assistant helping users understand text they've highlighted on a webpage. Provide clear, concise explanations (2-4 sentences). Focus on what the text means, key concepts, and why it matters. The user is reading: "${pageTitle}". Write in plain prose — no markdown, no bullet points, no bold or italic markers.`
+            text: `You are a knowledgeable assistant helping users understand text they've highlighted on a webpage. ${customPrompt ? 'Answer the user\'s specific question about the text.' : 'Provide clear, concise explanations (2-4 sentences). Focus on what the text means, key concepts, and why it matters.'} The user is reading: "${pageTitle}". Write in plain prose — no markdown, no bullet points, no bold or italic markers.`
           }]
         },
         contents: [{
           role: 'user',
-          parts: [{
-            text: `Please explain this highlighted text:\n\n"${selectedText}"\n\nSurrounding context: ...${surroundingContext}...`
-          }]
+          parts: [{ text: userMessage }]
         }],
         generationConfig: { maxOutputTokens: 512 },
         tools: [{ google_search: {} }]

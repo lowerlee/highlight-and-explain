@@ -175,13 +175,48 @@
   // ── UI injection ───────────────────────────────────────────────────────────
 
   function injectUI() {
-    // Annotate button
-    const btn = document.createElement('button');
+    // Split annotate button
+    const btn = document.createElement('div');
     btn.id = 'wa-annotate-btn';
-    btn.textContent = '✦ Annotate';
-    btn.style.display = 'none';
+    btn.innerHTML = `
+      <div class="wa-btn-half" id="wa-btn-basic">
+        <span class="wa-btn-icon">✦</span>
+        <span class="wa-btn-label">Explain</span>
+      </div>
+      <div class="wa-btn-divider"></div>
+      <div class="wa-btn-half" id="wa-btn-custom">
+        <span class="wa-btn-icon">✎</span>
+        <span class="wa-btn-label">Custom</span>
+      </div>
+    `;
     document.body.appendChild(btn);
-    btn.addEventListener('click', e => { e.stopPropagation(); annotate(); });
+
+    document.getElementById('wa-btn-basic').addEventListener('click', e => {
+      e.stopPropagation();
+      annotate();
+    });
+    document.getElementById('wa-btn-custom').addEventListener('click', e => {
+      e.stopPropagation();
+      showCustomInput();
+    });
+
+    // Custom prompt input
+    const customInput = document.createElement('div');
+    customInput.id = 'wa-custom-input';
+    customInput.innerHTML = `
+      <input type="text" id="wa-custom-prompt" placeholder="Ask anything about this…" autocomplete="off" spellcheck="false">
+      <button id="wa-custom-submit" title="Submit (Enter)">↵</button>
+    `;
+    document.body.appendChild(customInput);
+
+    document.getElementById('wa-custom-submit').addEventListener('click', e => {
+      e.stopPropagation();
+      submitCustomPrompt();
+    });
+    document.getElementById('wa-custom-prompt').addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.stopPropagation(); submitCustomPrompt(); }
+      if (e.key === 'Escape') { e.stopPropagation(); hideCustomInput(); }
+    });
 
     // Sidebar
     const sidebar = document.createElement('div');
@@ -199,7 +234,7 @@
           <button id="wa-sidebar-close" title="Close">✕</button>
         </div>
         <div id="wa-annotations-list">
-          <p id="wa-empty-msg">Highlight text and click <strong>✦ Annotate</strong> to get AI explanations.</p>
+          <p id="wa-empty-msg">Highlight text and click <strong>✦ Explain</strong> to get AI explanations.</p>
         </div>
       </div>
     `;
@@ -298,6 +333,7 @@
 
     card.innerHTML = `
       <blockquote class="wa-quote">${esc(quote)}</blockquote>
+      ${annotation.customPrompt ? `<p class="wa-custom-tag">✎ ${esc(annotation.customPrompt)}</p>` : ''}
       <p class="wa-explanation">${
         loading
           ? '<span class="wa-spinner"></span><span class="wa-loading-text">Analyzing with Gemini…</span>'
@@ -327,6 +363,16 @@
 
     const explanationEl = card.querySelector('.wa-explanation');
     if (explanationEl) explanationEl.textContent = annotation.explanation;
+
+    if (annotation.customPrompt) {
+      const tag = card.querySelector('.wa-custom-tag');
+      if (!tag) {
+        const t = document.createElement('p');
+        t.className = 'wa-custom-tag';
+        t.textContent = '✎ ' + annotation.customPrompt;
+        card.querySelector('.wa-quote')?.insertAdjacentElement('afterend', t);
+      }
+    }
 
     const srcs = sourcesHtml(annotation.sources);
     if (srcs) {
@@ -427,8 +473,8 @@
   function showAnnotateBtn(x, y) {
     const btn = document.getElementById('wa-annotate-btn');
     if (!btn) return;
-    btn.style.display = 'block';
-    const bw = 110;
+    btn.style.display = 'flex';
+    const bw = 190;
     btn.style.left = Math.min(x, window.innerWidth - bw - 8) + 'px';
     btn.style.top = Math.max(8, y - 44) + 'px';
   }
@@ -436,6 +482,36 @@
   function hideAnnotateBtn() {
     const btn = document.getElementById('wa-annotate-btn');
     if (btn) btn.style.display = 'none';
+    hideCustomInput(false);
+  }
+
+  function showCustomInput() {
+    const btn = document.getElementById('wa-annotate-btn');
+    const input = document.getElementById('wa-custom-input');
+    if (!btn || !input) return;
+    input.style.left = btn.style.left;
+    input.style.top = btn.style.top;
+    btn.style.display = 'none';
+    input.style.display = 'flex';
+    const promptEl = document.getElementById('wa-custom-prompt');
+    if (promptEl) { promptEl.value = ''; promptEl.focus(); }
+  }
+
+  function hideCustomInput(restoreBtn = true) {
+    const input = document.getElementById('wa-custom-input');
+    if (input) input.style.display = 'none';
+    if (restoreBtn) {
+      const btn = document.getElementById('wa-annotate-btn');
+      if (btn && pendingRange) btn.style.display = 'flex';
+    }
+  }
+
+  function submitCustomPrompt() {
+    const promptEl = document.getElementById('wa-custom-prompt');
+    const customPrompt = promptEl?.value.trim();
+    if (!customPrompt) { promptEl?.focus(); return; }
+    hideCustomInput(false);
+    annotate(customPrompt);
   }
 
   // ── Event listeners ────────────────────────────────────────────────────────
@@ -464,7 +540,10 @@
 
   document.addEventListener('mousedown', e => {
     const btn = document.getElementById('wa-annotate-btn');
-    if (btn && e.target !== btn && btn.style.display !== 'none') {
+    const customInput = document.getElementById('wa-custom-input');
+    const insideBtn = btn?.contains(e.target);
+    const insideInput = customInput?.contains(e.target);
+    if (!insideBtn && !insideInput) {
       hideAnnotateBtn();
       pendingRange = null;
     }
@@ -482,7 +561,7 @@
 
   // ── Annotation lifecycle ───────────────────────────────────────────────────
 
-  async function annotate() {
+  async function annotate(customPrompt = null) {
     if (!pendingRange) return;
 
     const range = pendingRange.cloneRange();
@@ -497,7 +576,7 @@
 
     openSidebar();
     const tempId = 'loading-' + Date.now();
-    const loadingCard = addAnnotationCard({ id: tempId, selectedText, explanation: '' }, { loading: true });
+    const loadingCard = addAnnotationCard({ id: tempId, selectedText, explanation: '', customPrompt }, { loading: true });
     updateEmptyMsg();
 
     let response;
@@ -507,7 +586,8 @@
         payload: {
           selectedText,
           pageTitle: document.title,
-          surroundingContext: anchor.prefix + selectedText + anchor.suffix
+          surroundingContext: anchor.prefix + selectedText + anchor.suffix,
+          customPrompt
         }
       });
     } catch (e) {
@@ -527,7 +607,8 @@
       anchor,
       explanation: response.explanation,
       sources: response.sources || [],
-      selectedText
+      selectedText,
+      customPrompt
     };
 
     highlightRangeSafe(range, id);
