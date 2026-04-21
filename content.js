@@ -13,6 +13,7 @@
 
   const annotations = new Map(); // id → annotation
   let pendingRange = null;
+  let extensionEnabled = true;
   let sidebarEnabled = true;
   let tooltipEnabled = true;
 
@@ -215,7 +216,11 @@
 
   // ── Sidebar control ────────────────────────────────────────────────────────
 
-  function applySettings({ sidebarEnabled: se, tooltipEnabled: te }) {
+  function applySettings({ extensionEnabled: ee, sidebarEnabled: se, tooltipEnabled: te }) {
+    if (ee !== undefined) {
+      extensionEnabled = ee;
+      if (!extensionEnabled) { hideAnnotateBtn(); pendingRange = null; }
+    }
     if (se !== undefined) sidebarEnabled = se;
     if (te !== undefined) tooltipEnabled = te;
 
@@ -436,6 +441,8 @@
   // ── Event listeners ────────────────────────────────────────────────────────
 
   document.addEventListener('mouseup', e => {
+    if (!extensionEnabled) return;
+
     const sel = window.getSelection();
     const text = sel?.toString().trim();
 
@@ -614,8 +621,9 @@
 
   injectUI();
 
-  chrome.storage.sync.get(['sidebarEnabled', 'tooltipEnabled'], result => {
+  chrome.storage.sync.get(['extensionEnabled', 'sidebarEnabled', 'tooltipEnabled'], result => {
     applySettings({
+      extensionEnabled: result.extensionEnabled ?? true,
       sidebarEnabled: result.sidebarEnabled ?? true,
       tooltipEnabled: result.tooltipEnabled ?? true
     });

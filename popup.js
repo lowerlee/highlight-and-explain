@@ -6,6 +6,7 @@ const saveStatus = document.getElementById('save-status');
 const annotationCount = document.getElementById('annotation-count');
 const clearBtn = document.getElementById('clear-btn');
 const clearStatus = document.getElementById('clear-status');
+const enabledToggle = document.getElementById('enabled-toggle');
 const sidebarToggle = document.getElementById('sidebar-toggle');
 const tooltipToggle = document.getElementById('tooltip-toggle');
 
@@ -17,7 +18,8 @@ chrome.storage.sync.get('geminiApiKey', ({ geminiApiKey }) => {
 
 // ── Load display settings ────────────────────────────────────────────────────
 
-chrome.storage.sync.get(['sidebarEnabled', 'tooltipEnabled'], result => {
+chrome.storage.sync.get(['extensionEnabled', 'sidebarEnabled', 'tooltipEnabled'], result => {
+  enabledToggle.checked = result.extensionEnabled ?? true;
   sidebarToggle.checked = result.sidebarEnabled ?? true;
   tooltipToggle.checked = result.tooltipEnabled ?? true;
 });
@@ -79,6 +81,7 @@ clearBtn.addEventListener('click', () => {
 
 function onToggleChange() {
   const settings = {
+    extensionEnabled: enabledToggle.checked,
     sidebarEnabled: sidebarToggle.checked,
     tooltipEnabled: tooltipToggle.checked
   };
@@ -91,6 +94,7 @@ function onToggleChange() {
   });
 }
 
+enabledToggle.addEventListener('change', onToggleChange);
 sidebarToggle.addEventListener('change', onToggleChange);
 tooltipToggle.addEventListener('change', onToggleChange);
 
