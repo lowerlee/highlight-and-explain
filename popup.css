@@ -1,0 +1,247 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  color: #1a1a2e;
+  background: #fff;
+  width: 280px;
+  min-height: 100px;
+}
+
+.popup-container {
+  padding: 0 0 8px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid #ebebf5;
+  background: #faf9ff;
+}
+
+.popup-logo {
+  font-size: 18px;
+  color: #5b4ae8;
+}
+
+h1 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1a1a2e;
+  letter-spacing: -0.01em;
+}
+
+/* ── Sections ───────────────────────────────────────────────────────────── */
+
+.section {
+  padding: 12px 16px;
+  border-bottom: 1px solid #ebebf5;
+}
+
+.section:last-child {
+  border-bottom: none;
+}
+
+label {
+  display: block;
+  font-weight: 600;
+  font-size: 12px;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+/* ── Input row ──────────────────────────────────────────────────────────── */
+
+.input-row {
+  display: flex;
+  gap: 6px;
+}
+
+input[type="password"] {
+  flex: 1;
+  border: 1px solid #d0cdf0;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: #1a1a2e;
+  outline: none;
+  transition: border-color 0.15s;
+  background: #fff;
+}
+
+input[type="password"]:focus {
+  border-color: #5b4ae8;
+  box-shadow: 0 0 0 2px rgba(91, 74, 232, 0.15);
+}
+
+button {
+  background: #5b4ae8;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+button:hover {
+  background: #4a3bd4;
+}
+
+/* ── Status messages ────────────────────────────────────────────────────── */
+
+.status-msg {
+  font-size: 12px;
+  margin-top: 6px;
+  min-height: 16px;
+  transition: color 0.2s;
+}
+
+.status-ok {
+  color: #2e9e5a;
+}
+
+.status-error {
+  color: #d9534f;
+}
+
+/* ── Hint link ──────────────────────────────────────────────────────────── */
+
+.hint {
+  font-size: 11px;
+  color: #999;
+  margin-top: 6px;
+}
+
+.hint a {
+  color: #5b4ae8;
+  text-decoration: none;
+}
+
+.hint a:hover {
+  text-decoration: underline;
+}
+
+/* ── Stats ──────────────────────────────────────────────────────────────── */
+
+.section-stats {
+  background: #faf9ff;
+}
+
+.stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stat-label {
+  color: #555;
+}
+
+.stat-value {
+  font-weight: 700;
+  color: #5b4ae8;
+  font-size: 16px;
+}
+
+/* ── Display toggles ────────────────────────────────────────────────────── */
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 0;
+}
+
+.toggle-row + .toggle-row {
+  margin-top: 2px;
+}
+
+.toggle-label {
+  font-size: 13px;
+  color: #333;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  cursor: pointer;
+  /* reset inherited label styles */
+  font-weight: normal;
+  font-size: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  margin-bottom: 0;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.toggle-thumb {
+  position: absolute;
+  inset: 0;
+  background: #d0cdf0;
+  border-radius: 20px;
+  transition: background 0.2s;
+}
+
+.toggle-thumb::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.toggle-switch input:checked + .toggle-thumb {
+  background: #5b4ae8;
+}
+
+.toggle-switch input:checked + .toggle-thumb::after {
+  transform: translateX(16px);
+}
+
+/* ── Danger button ──────────────────────────────────────────────────────── */
+
+.btn-danger {
+  background: none;
+  color: #d9534f;
+  border: 1px solid #f5c6c5;
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn-danger:hover {
+  background: #fdecea;
+  border-color: #e09090;
+}

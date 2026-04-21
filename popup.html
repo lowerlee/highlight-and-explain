@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Web Annotator</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <div class="popup-header">
+      <span class="popup-logo">✦</span>
+      <h1>AI Web Annotator</h1>
+    </div>
+
+    <section class="section">
+      <label for="api-key">Gemini API Key</label>
+      <div class="input-row">
+        <input type="password" id="api-key" placeholder="AIza…" autocomplete="off" spellcheck="false">
+        <button id="save-btn">Save</button>
+      </div>
+      <p id="save-status" class="status-msg"></p>
+      <p class="hint">
+        Get your key at
+        <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">aistudio.google.com</a>
+      </p>
+    </section>
+
+    <section class="section section-stats">
+      <div class="stat-row">
+        <span class="stat-label">Annotations on this page</span>
+        <span id="annotation-count" class="stat-value">—</span>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="toggle-row">
+        <span class="toggle-label">Sidebar</span>
+        <label class="toggle-switch" title="Show annotation sidebar">
+          <input type="checkbox" id="sidebar-toggle">
+          <span class="toggle-thumb"></span>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Hover tooltip</span>
+        <label class="toggle-switch" title="Show explanation on hover">
+          <input type="checkbox" id="tooltip-toggle">
+          <span class="toggle-thumb"></span>
+        </label>
+      </div>
+    </section>
+
+    <section class="section">
+      <button id="clear-btn" class="btn-danger">Clear all annotations on this page</button>
+      <p id="clear-status" class="status-msg"></p>
+    </section>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

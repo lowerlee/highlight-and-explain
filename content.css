@@ -1,0 +1,362 @@
+/* All classes prefixed wa- to avoid host-page collisions */
+
+/* ── Annotate button ─────────────────────────────────────────────────────── */
+
+#wa-annotate-btn {
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  background: #5b4ae8 !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 6px !important;
+  padding: 7px 13px !important;
+  font-size: 13px !important;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25) !important;
+  white-space: nowrap !important;
+  line-height: 1.4 !important;
+  transition: background 0.15s ease !important;
+  pointer-events: auto !important;
+}
+
+#wa-annotate-btn:hover {
+  background: #4a3bd4 !important;
+}
+
+/* ── Highlights ──────────────────────────────────────────────────────────── */
+
+mark.wa-highlight {
+  background: rgba(91, 74, 232, 0.2) !important;
+  border-bottom: 2px solid rgba(91, 74, 232, 0.7) !important;
+  color: inherit !important;
+  padding: 0 !important;
+  border-radius: 2px !important;
+  cursor: pointer !important;
+  transition: background 0.15s ease !important;
+}
+
+mark.wa-highlight:hover {
+  background: rgba(91, 74, 232, 0.35) !important;
+}
+
+mark.wa-highlight.wa-active {
+  background: rgba(91, 74, 232, 0.5) !important;
+  outline: 2px solid rgba(91, 74, 232, 0.8) !important;
+}
+
+/* ── Sidebar shell ───────────────────────────────────────────────────────── */
+/*
+  The sidebar is 344px wide = 24px tab + 320px content.
+  When closed: translateX(calc(100% - 24px)) — only the tab shows.
+  When open:   translateX(0) — full sidebar visible.
+*/
+
+#wa-sidebar {
+  position: fixed !important;
+  top: 0 !important;
+  right: 0 !important;
+  width: 344px !important;
+  height: 100vh !important;
+  z-index: 2147483646 !important;
+  display: flex !important;
+  flex-direction: row !important;
+  transform: translateX(calc(100% - 24px)) !important;
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  pointer-events: auto !important;
+  box-sizing: border-box !important;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+  color: #1a1a2e !important;
+}
+
+#wa-sidebar.wa-open {
+  transform: translateX(0) !important;
+}
+
+#wa-sidebar.wa-hidden {
+  display: none !important;
+}
+
+/* ── Sidebar tab (always visible) ────────────────────────────────────────── */
+
+#wa-sidebar-tab {
+  width: 24px !important;
+  min-width: 24px !important;
+  height: 100% !important;
+  background: #5b4ae8 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  cursor: pointer !important;
+  border-radius: 0 !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  user-select: none !important;
+  transition: background 0.15s ease !important;
+}
+
+#wa-sidebar-tab:hover {
+  background: #4a3bd4 !important;
+}
+
+#wa-sidebar-tab svg {
+  flex-shrink: 0 !important;
+  stroke: currentColor !important;
+  stroke-width: 2 !important;
+  fill: none !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+}
+
+#wa-tab-count {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  background: rgba(255, 255, 255, 0.25) !important;
+  border-radius: 10px !important;
+  padding: 2px 5px !important;
+  min-width: 16px !important;
+  text-align: center !important;
+  display: block !important;
+  line-height: 1.3 !important;
+}
+
+#wa-tab-count:empty {
+  display: none !important;
+}
+
+/* ── Sidebar inner panel ─────────────────────────────────────────────────── */
+
+#wa-sidebar-inner {
+  flex: 1 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: #fff !important;
+  border-left: 1px solid #e0ddf8 !important;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.12) !important;
+  overflow: hidden !important;
+}
+
+#wa-sidebar-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 14px 16px !important;
+  border-bottom: 1px solid #ebebf5 !important;
+  background: #faf9ff !important;
+  flex-shrink: 0 !important;
+}
+
+#wa-sidebar-title {
+  font-weight: 700 !important;
+  font-size: 15px !important;
+  color: #1a1a2e !important;
+  letter-spacing: -0.01em !important;
+}
+
+#wa-sidebar-close {
+  background: none !important;
+  border: none !important;
+  color: #888 !important;
+  cursor: pointer !important;
+  font-size: 16px !important;
+  padding: 2px 6px !important;
+  border-radius: 4px !important;
+  line-height: 1 !important;
+  transition: color 0.15s, background 0.15s !important;
+}
+
+#wa-sidebar-close:hover {
+  color: #333 !important;
+  background: #f0eeff !important;
+}
+
+/* ── Annotations list ────────────────────────────────────────────────────── */
+
+#wa-annotations-list {
+  flex: 1 !important;
+  overflow-y: auto !important;
+  padding: 12px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+#wa-empty-msg {
+  color: #999 !important;
+  font-size: 13px !important;
+  text-align: center !important;
+  padding: 24px 8px !important;
+  margin: 0 !important;
+  line-height: 1.6 !important;
+}
+
+/* ── Annotation cards ────────────────────────────────────────────────────── */
+
+.wa-card {
+  background: #faf9ff !important;
+  border: 1px solid #e0ddf8 !important;
+  border-radius: 8px !important;
+  padding: 12px !important;
+  position: relative !important;
+  cursor: pointer !important;
+  transition: border-color 0.15s, box-shadow 0.15s !important;
+}
+
+.wa-card:hover {
+  border-color: #b8b0f0 !important;
+  box-shadow: 0 2px 8px rgba(91, 74, 232, 0.1) !important;
+}
+
+.wa-card.wa-active {
+  border-color: #5b4ae8 !important;
+  box-shadow: 0 0 0 2px rgba(91, 74, 232, 0.2) !important;
+}
+
+.wa-card.wa-loading {
+  opacity: 0.8 !important;
+  cursor: default !important;
+}
+
+.wa-card.wa-orphaned {
+  opacity: 0.7 !important;
+  border-style: dashed !important;
+}
+
+.wa-card.wa-error {
+  border-color: #f5a0a0 !important;
+  background: #fff8f8 !important;
+  cursor: default !important;
+}
+
+.wa-quote {
+  font-size: 12px !important;
+  color: #5b4ae8 !important;
+  font-style: italic !important;
+  margin: 0 0 8px 0 !important;
+  padding: 6px 10px !important;
+  border-left: 3px solid #5b4ae8 !important;
+  background: rgba(91, 74, 232, 0.06) !important;
+  border-radius: 0 4px 4px 0 !important;
+  line-height: 1.4 !important;
+  word-break: break-word !important;
+}
+
+.wa-explanation {
+  font-size: 13px !important;
+  color: #333 !important;
+  margin: 0 0 4px 0 !important;
+  line-height: 1.6 !important;
+  word-break: break-word !important;
+}
+
+.wa-sources {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 4px !important;
+  margin: 6px 0 2px !important;
+}
+
+.wa-source-link {
+  display: inline-block !important;
+  font-size: 11px !important;
+  color: #5b4ae8 !important;
+  background: rgba(91, 74, 232, 0.08) !important;
+  border: 1px solid rgba(91, 74, 232, 0.2) !important;
+  border-radius: 10px !important;
+  padding: 2px 8px !important;
+  text-decoration: none !important;
+  white-space: nowrap !important;
+  max-width: 180px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  transition: background 0.15s !important;
+}
+
+.wa-source-link:hover {
+  background: rgba(91, 74, 232, 0.18) !important;
+  text-decoration: none !important;
+}
+
+.wa-orphan-note {
+  font-size: 11px !important;
+  color: #e07c00 !important;
+  margin: 6px 0 0 0 !important;
+}
+
+.wa-error-icon {
+  color: #d9534f !important;
+}
+
+.wa-delete-btn {
+  position: absolute !important;
+  top: 8px !important;
+  right: 8px !important;
+  background: none !important;
+  border: none !important;
+  color: #ccc !important;
+  cursor: pointer !important;
+  font-size: 13px !important;
+  line-height: 1 !important;
+  padding: 3px 5px !important;
+  border-radius: 4px !important;
+  transition: color 0.15s, background 0.15s !important;
+  display: none !important;
+}
+
+.wa-card:hover .wa-delete-btn {
+  display: block !important;
+}
+
+.wa-delete-btn:hover {
+  color: #d9534f !important;
+  background: #fdecea !important;
+}
+
+/* ── Loading spinner ─────────────────────────────────────────────────────── */
+
+.wa-spinner {
+  display: inline-block !important;
+  width: 12px !important;
+  height: 12px !important;
+  border: 2px solid #e0ddf8 !important;
+  border-top-color: #5b4ae8 !important;
+  border-radius: 50% !important;
+  animation: wa-spin 0.7s linear infinite !important;
+  vertical-align: middle !important;
+  margin-right: 6px !important;
+}
+
+.wa-loading-text {
+  color: #888 !important;
+  font-style: italic !important;
+  font-size: 12px !important;
+}
+
+@keyframes wa-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Hover tooltip ───────────────────────────────────────────────────────── */
+
+#wa-tooltip {
+  /* No !important on display — JS inline style must be able to override it */
+  display: none;
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  max-width: 320px !important;
+  background: #1a1a2e !important;
+  color: #f0efff !important;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 13px !important;
+  line-height: 1.55 !important;
+  padding: 10px 14px !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35) !important;
+  pointer-events: none !important;
+  word-break: break-word !important;
+  white-space: normal !important;
+}
