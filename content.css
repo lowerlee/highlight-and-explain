@@ -15,7 +15,7 @@
   font-size: 13px !important;
   font-weight: 500 !important;
   pointer-events: auto !important;
-  min-width: 180px !important;
+  min-width: 268px !important;
 }
 
 .wa-btn-half {
@@ -42,17 +42,38 @@
   background: #5b4ae8 !important;
 }
 
-/* Hover expand: the hovered half grows, sibling shrinks */
+#wa-btn-note {
+  background: #1a7a6e !important;
+}
+
+/* Hover expand: the hovered third grows, siblings shrink */
+#wa-annotate-btn:has(#wa-btn-basic:hover) #wa-btn-basic {
+  flex: 2.5 1 0 !important;
+}
+#wa-annotate-btn:has(#wa-btn-basic:hover) #wa-btn-custom {
+  flex: 0.6 1 0 !important;
+}
+#wa-annotate-btn:has(#wa-btn-basic:hover) #wa-btn-note {
+  flex: 0.6 1 0 !important;
+}
+
 #wa-annotate-btn:has(#wa-btn-custom:hover) #wa-btn-custom {
   flex: 2.5 1 0 !important;
 }
 #wa-annotate-btn:has(#wa-btn-custom:hover) #wa-btn-basic {
   flex: 0.6 1 0 !important;
 }
-#wa-annotate-btn:has(#wa-btn-basic:hover) #wa-btn-basic {
+#wa-annotate-btn:has(#wa-btn-custom:hover) #wa-btn-note {
+  flex: 0.6 1 0 !important;
+}
+
+#wa-annotate-btn:has(#wa-btn-note:hover) #wa-btn-note {
   flex: 2.5 1 0 !important;
 }
-#wa-annotate-btn:has(#wa-btn-basic:hover) #wa-btn-custom {
+#wa-annotate-btn:has(#wa-btn-note:hover) #wa-btn-basic {
+  flex: 0.6 1 0 !important;
+}
+#wa-annotate-btn:has(#wa-btn-note:hover) #wa-btn-custom {
   flex: 0.6 1 0 !important;
 }
 
@@ -116,6 +137,51 @@
   background: #4a3bd4 !important;
 }
 
+/* ── Note input ──────────────────────────────────────────────────────────── */
+
+#wa-note-input {
+  display: none; /* shown as flex via JS */
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 6px !important;
+  background: #fff !important;
+  border: 2px solid #1a7a6e !important;
+  border-radius: 8px !important;
+  padding: 6px 8px !important;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.2) !important;
+  width: 300px !important;
+  pointer-events: auto !important;
+}
+
+#wa-note-text {
+  flex: 1 !important;
+  border: none !important;
+  outline: none !important;
+  font-size: 13px !important;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  color: #1a1a2e !important;
+  background: transparent !important;
+  padding: 2px 4px !important;
+}
+
+#wa-note-submit {
+  background: #1a7a6e !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 5px !important;
+  padding: 4px 10px !important;
+  font-size: 14px !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  transition: background 0.15s !important;
+}
+
+#wa-note-submit:hover {
+  background: #145f56 !important;
+}
+
 /* ── Highlights ──────────────────────────────────────────────────────────── */
 
 mark.wa-highlight {
@@ -135,6 +201,20 @@ mark.wa-highlight:hover {
 mark.wa-highlight.wa-active {
   background: rgba(91, 74, 232, 0.5) !important;
   outline: 2px solid rgba(91, 74, 232, 0.8) !important;
+}
+
+mark.wa-note-highlight {
+  background: rgba(26, 122, 110, 0.15) !important;
+  border-bottom: 2px solid rgba(26, 122, 110, 0.65) !important;
+}
+
+mark.wa-note-highlight:hover {
+  background: rgba(26, 122, 110, 0.28) !important;
+}
+
+mark.wa-note-highlight.wa-active {
+  background: rgba(26, 122, 110, 0.42) !important;
+  outline: 2px solid rgba(26, 122, 110, 0.75) !important;
 }
 
 /* ── Sidebar shell ───────────────────────────────────────────────────────── */
@@ -463,4 +543,48 @@ mark.wa-highlight.wa-active {
   pointer-events: none !important;
   word-break: break-word !important;
   white-space: normal !important;
+}
+
+/* ── Note annotation cards ───────────────────────────────────────────────── */
+
+.wa-note-card {
+  border-color: #b2e0da !important;
+  background: #f2faf8 !important;
+}
+
+.wa-note-card:hover {
+  border-color: #7ecdc4 !important;
+  box-shadow: 0 2px 8px rgba(26, 122, 110, 0.1) !important;
+}
+
+.wa-note-card.wa-active {
+  border-color: #1a7a6e !important;
+  box-shadow: 0 0 0 2px rgba(26, 122, 110, 0.2) !important;
+}
+
+.wa-quote-note {
+  color: #1a7a6e !important;
+  border-left-color: #1a7a6e !important;
+  background: rgba(26, 122, 110, 0.06) !important;
+}
+
+.wa-note-indicator {
+  font-size: 11px !important;
+  color: #1a7a6e !important;
+  background: rgba(26, 122, 110, 0.08) !important;
+  border-radius: 4px !important;
+  padding: 3px 7px !important;
+  margin: 0 0 6px 0 !important;
+  font-style: italic !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.wa-note-body {
+  font-size: 13px !important;
+  color: #1a3330 !important;
+  margin: 0 0 4px 0 !important;
+  line-height: 1.6 !important;
+  word-break: break-word !important;
 }

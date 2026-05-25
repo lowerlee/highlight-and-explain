@@ -139,7 +139,7 @@
     return nodes;
   }
 
-  function highlightRangeSafe(range, id) {
+  function highlightRangeSafe(range, id, type = null) {
     const textNodes = getTextNodesInRange(range);
     if (!textNodes.length) return;
 
@@ -152,7 +152,7 @@
         if (nr.collapsed) return;
 
         const mark = document.createElement('mark');
-        mark.className = 'wa-highlight';
+        mark.className = 'wa-highlight' + (type === 'note' ? ' wa-note-highlight' : '');
         mark.dataset.annotationId = id;
         nr.surroundContents(mark);
 
@@ -188,6 +188,11 @@
         <span class="wa-btn-icon">✎</span>
         <span class="wa-btn-label">Custom</span>
       </div>
+      <div class="wa-btn-divider"></div>
+      <div class="wa-btn-half" id="wa-btn-note">
+        <span class="wa-btn-icon">✏</span>
+        <span class="wa-btn-label">Note</span>
+      </div>
     `;
     document.body.appendChild(btn);
 
@@ -198,6 +203,10 @@
     document.getElementById('wa-btn-custom').addEventListener('click', e => {
       e.stopPropagation();
       showCustomInput();
+    });
+    document.getElementById('wa-btn-note').addEventListener('click', e => {
+      e.stopPropagation();
+      showNoteInput();
     });
 
     // Custom prompt input
@@ -216,6 +225,24 @@
     document.getElementById('wa-custom-prompt').addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.stopPropagation(); submitCustomPrompt(); }
       if (e.key === 'Escape') { e.stopPropagation(); hideCustomInput(); }
+    });
+
+    // Note input
+    const noteInput = document.createElement('div');
+    noteInput.id = 'wa-note-input';
+    noteInput.innerHTML = `
+      <input type="text" id="wa-note-text" placeholder="Write your note…" autocomplete="off" spellcheck="false">
+      <button id="wa-note-submit" title="Save note (Enter)">↵</button>
+    `;
+    document.body.appendChild(noteInput);
+
+    document.getElementById('wa-note-submit').addEventListener('click', e => {
+      e.stopPropagation();
+      submitNote();
+    });
+    document.getElementById('wa-note-text').addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.stopPropagation(); submitNote(); }
+      if (e.key === 'Escape') { e.stopPropagation(); hideNoteInput(); }
     });
 
     // Sidebar
@@ -323,26 +350,37 @@
     const list = document.getElementById('wa-annotations-list');
     if (!list) return null;
 
+    const isNote = annotation.type === 'note';
     const card = document.createElement('div');
-    card.className = 'wa-card' + (orphaned ? ' wa-orphaned' : '') + (loading ? ' wa-loading' : '');
+    card.className = 'wa-card' + (isNote ? ' wa-note-card' : '') + (orphaned ? ' wa-orphaned' : '') + (loading ? ' wa-loading' : '');
     card.dataset.annotationId = annotation.id;
 
     const quote = annotation.selectedText.length > 120
       ? annotation.selectedText.slice(0, 120) + '…'
       : annotation.selectedText;
 
-    card.innerHTML = `
-      <blockquote class="wa-quote">${esc(quote)}</blockquote>
-      ${annotation.customPrompt ? `<p class="wa-custom-tag">✎ ${esc(annotation.customPrompt)}</p>` : ''}
-      <p class="wa-explanation">${
-        loading
-          ? '<span class="wa-spinner"></span><span class="wa-loading-text">Analyzing with Gemini…</span>'
-          : esc(annotation.explanation)
-      }</p>
-      ${!loading ? sourcesHtml(annotation.sources) : ''}
-      ${orphaned ? '<p class="wa-orphan-note">⚠ Text not found on this page</p>' : ''}
-      ${!loading ? '<button class="wa-delete-btn" title="Delete annotation">✕</button>' : ''}
-    `;
+    if (isNote) {
+      card.innerHTML = `
+        <blockquote class="wa-quote wa-quote-note">${esc(quote)}</blockquote>
+        <p class="wa-note-indicator">✏ Personal note</p>
+        <p class="wa-note-body">${esc(annotation.noteText)}</p>
+        ${orphaned ? '<p class="wa-orphan-note">⚠ Text not found on this page</p>' : ''}
+        <button class="wa-delete-btn" title="Delete note">✕</button>
+      `;
+    } else {
+      card.innerHTML = `
+        <blockquote class="wa-quote">${esc(quote)}</blockquote>
+        ${annotation.customPrompt ? `<p class="wa-custom-tag">✎ ${esc(annotation.customPrompt)}</p>` : ''}
+        <p class="wa-explanation">${
+          loading
+            ? '<span class="wa-spinner"></span><span class="wa-loading-text">Analyzing with Gemini…</span>'
+            : esc(annotation.explanation)
+        }</p>
+        ${!loading ? sourcesHtml(annotation.sources) : ''}
+        ${orphaned ? '<p class="wa-orphan-note">⚠ Text not found on this page</p>' : ''}
+        ${!loading ? '<button class="wa-delete-btn" title="Delete annotation">✕</button>' : ''}
+      `;
+    }
 
     if (!loading) {
       card.querySelector('.wa-delete-btn').addEventListener('click', e => {
@@ -434,12 +472,13 @@
   function showTooltip(mark) {
     if (!tooltipEnabled) return;
     const annotation = annotations.get(mark.dataset.annotationId);
-    if (!annotation?.explanation) return;
+    const text = annotation?.type === 'note' ? annotation.noteText : annotation?.explanation;
+    if (!text) return;
 
     const tooltip = document.getElementById('wa-tooltip');
     if (!tooltip) return;
 
-    tooltip.textContent = annotation.explanation;
+    tooltip.textContent = text;
 
     // Measure while invisible to compute position
     tooltip.style.visibility = 'hidden';
@@ -474,7 +513,7 @@
     const btn = document.getElementById('wa-annotate-btn');
     if (!btn) return;
     btn.style.display = 'flex';
-    const bw = 190;
+    const bw = 268;
     btn.style.left = Math.min(x, window.innerWidth - bw - 8) + 'px';
     btn.style.top = Math.max(8, y - 44) + 'px';
   }
@@ -483,6 +522,7 @@
     const btn = document.getElementById('wa-annotate-btn');
     if (btn) btn.style.display = 'none';
     hideCustomInput(false);
+    hideNoteInput(false);
   }
 
   function showCustomInput() {
@@ -514,6 +554,35 @@
     annotate(customPrompt);
   }
 
+  function showNoteInput() {
+    const btn = document.getElementById('wa-annotate-btn');
+    const input = document.getElementById('wa-note-input');
+    if (!btn || !input) return;
+    input.style.left = btn.style.left;
+    input.style.top = btn.style.top;
+    btn.style.display = 'none';
+    input.style.display = 'flex';
+    const textEl = document.getElementById('wa-note-text');
+    if (textEl) { textEl.value = ''; textEl.focus(); }
+  }
+
+  function hideNoteInput(restoreBtn = true) {
+    const input = document.getElementById('wa-note-input');
+    if (input) input.style.display = 'none';
+    if (restoreBtn) {
+      const btn = document.getElementById('wa-annotate-btn');
+      if (btn && pendingRange) btn.style.display = 'flex';
+    }
+  }
+
+  function submitNote() {
+    const textEl = document.getElementById('wa-note-text');
+    const noteText = textEl?.value.trim();
+    if (!noteText) { textEl?.focus(); return; }
+    hideNoteInput(false);
+    saveNoteAnnotation(noteText);
+  }
+
   // ── Event listeners ────────────────────────────────────────────────────────
 
   document.addEventListener('mouseup', e => {
@@ -541,9 +610,11 @@
   document.addEventListener('mousedown', e => {
     const btn = document.getElementById('wa-annotate-btn');
     const customInput = document.getElementById('wa-custom-input');
+    const noteInput = document.getElementById('wa-note-input');
     const insideBtn = btn?.contains(e.target);
     const insideInput = customInput?.contains(e.target);
-    if (!insideBtn && !insideInput) {
+    const insideNote = noteInput?.contains(e.target);
+    if (!insideBtn && !insideInput && !insideNote) {
       hideAnnotateBtn();
       pendingRange = null;
     }
@@ -624,6 +695,42 @@
     }).catch(() => {});
   }
 
+  function saveNoteAnnotation(noteText) {
+    if (!pendingRange) return;
+
+    const range = pendingRange.cloneRange();
+    const selectedText = range.toString().trim();
+    if (!selectedText) return;
+
+    hideAnnotateBtn();
+    pendingRange = null;
+
+    const anchor = computeAnchor(range);
+    if (!anchor) return;
+
+    openSidebar();
+    const id = crypto.randomUUID();
+    const annotation = {
+      id,
+      type: 'note',
+      createdAt: Date.now(),
+      anchor,
+      selectedText,
+      noteText
+    };
+
+    highlightRangeSafe(range, id, 'note');
+    addAnnotationCard(annotation);
+    annotations.set(id, annotation);
+    updateTabCount();
+    updateEmptyMsg();
+
+    chrome.runtime.sendMessage({
+      type: 'SAVE_ANNOTATION',
+      payload: { url: window.location.href, annotation }
+    }).catch(() => {});
+  }
+
   async function deleteAnnotation(id) {
     removeHighlight(id);
 
@@ -661,7 +768,7 @@
       annotations.set(annotation.id, annotation);
       const range = findRangeFromAnchor(annotation.anchor);
       if (range) {
-        highlightRangeSafe(range, annotation.id);
+        highlightRangeSafe(range, annotation.id, annotation.type);
         addAnnotationCard(annotation);
       } else {
         addAnnotationCard(annotation, { orphaned: true });
