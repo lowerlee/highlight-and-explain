@@ -184,6 +184,11 @@
         <span class="wa-btn-label">Explain</span>
       </div>
       <div class="wa-btn-divider"></div>
+      <div class="wa-btn-half" id="wa-btn-cite">
+        <span class="wa-btn-icon">⚖</span>
+        <span class="wa-btn-label">Cite</span>
+      </div>
+      <div class="wa-btn-divider"></div>
       <div class="wa-btn-half" id="wa-btn-custom">
         <span class="wa-btn-icon">✎</span>
         <span class="wa-btn-label">Custom</span>
@@ -199,6 +204,10 @@
     document.getElementById('wa-btn-basic').addEventListener('click', e => {
       e.stopPropagation();
       annotate();
+    });
+    document.getElementById('wa-btn-cite').addEventListener('click', e => {
+      e.stopPropagation();
+      annotateCite();
     });
     document.getElementById('wa-btn-custom').addEventListener('click', e => {
       e.stopPropagation();
@@ -346,13 +355,76 @@
     return `<div class="wa-sources">${links}</div>`;
   }
 
+  const STANCE_ORDER = ['supporting', 'contradicting', 'contextualizing'];
+  const STANCE_LABELS = {
+    supporting: 'Supporting',
+    contradicting: 'Contradicting',
+    contextualizing: 'Context'
+  };
+  const SOURCE_TYPE_LABELS = {
+    peer_reviewed: 'Peer-reviewed',
+    government: 'Government',
+    established_outlet: 'Established outlet',
+    blog: 'Blog',
+    other: 'Other'
+  };
+
+  function citationsHtml(citations) {
+    if (!citations?.length) return '<p class="wa-empty-stance">No citations.</p>';
+
+    const grouped = { supporting: [], contradicting: [], contextualizing: [] };
+    for (const c of citations) {
+      if (grouped[c.stance]) grouped[c.stance].push(c);
+    }
+
+    return STANCE_ORDER.map(stance => {
+      const items = grouped[stance];
+      if (!items.length) return '';
+      const rows = items.map(c => {
+        const hostname = (() => { try { return new URL(c.uri).hostname; } catch { return ''; } })();
+        const title = c.title || hostname || 'Untitled';
+        const badgeLabel = SOURCE_TYPE_LABELS[c.sourceType] || 'Other';
+        return `
+          <div class="wa-cite-row">
+            <a class="wa-cite-link" href="${esc(c.uri)}" target="_blank" rel="noopener" title="${esc(c.uri)}">${esc(title)}</a>
+            <span class="wa-source-badge wa-badge-${esc(c.sourceType || 'other')}">${esc(badgeLabel)}</span>
+            <p class="wa-cite-rationale">${esc(c.rationale || '')}</p>
+          </div>
+        `;
+      }).join('');
+      return `
+        <div class="wa-cite-group wa-stance-${esc(stance)}">
+          <div class="wa-stance-label">${esc(STANCE_LABELS[stance])} <span class="wa-stance-count">${items.length}</span></div>
+          ${rows}
+        </div>
+      `;
+    }).join('');
+  }
+
+  function citeCountSummary(citations) {
+    const counts = { supporting: 0, contradicting: 0, contextualizing: 0 };
+    for (const c of citations || []) {
+      if (counts[c.stance] !== undefined) counts[c.stance]++;
+    }
+    const parts = [];
+    if (counts.supporting) parts.push(`${counts.supporting} supporting`);
+    if (counts.contradicting) parts.push(`${counts.contradicting} contradicting`);
+    if (counts.contextualizing) parts.push(`${counts.contextualizing} context`);
+    return parts.join(' · ') || 'No citations';
+  }
+
   function addAnnotationCard(annotation, { orphaned = false, loading = false } = {}) {
     const list = document.getElementById('wa-annotations-list');
     if (!list) return null;
 
     const isNote = annotation.type === 'note';
+    const isCite = annotation.type === 'cite';
     const card = document.createElement('div');
-    card.className = 'wa-card' + (isNote ? ' wa-note-card' : '') + (orphaned ? ' wa-orphaned' : '') + (loading ? ' wa-loading' : '');
+    card.className = 'wa-card'
+      + (isNote ? ' wa-note-card' : '')
+      + (isCite ? ' wa-card-cite' : '')
+      + (orphaned ? ' wa-orphaned' : '')
+      + (loading ? ' wa-loading' : '');
     card.dataset.annotationId = annotation.id;
 
     const quote = annotation.selectedText.length > 120
@@ -368,15 +440,20 @@
         <button class="wa-delete-btn" title="Delete note">✕</button>
       `;
     } else {
+      const loadingText = isCite ? 'Searching and classifying sources…' : 'Analyzing with Gemini…';
+      const verdictHtml = isCite && annotation.verdict
+        ? `<p class="wa-verdict">${esc(annotation.verdict)}</p>`
+        : '';
+      const bodyHtml = loading
+        ? `<p class="wa-explanation"><span class="wa-spinner"></span><span class="wa-loading-text">${loadingText}</span></p>`
+        : (isCite
+            ? `${verdictHtml}<div class="wa-citations">${citationsHtml(annotation.citations)}</div>`
+            : `<p class="wa-explanation">${esc(annotation.explanation)}</p>${sourcesHtml(annotation.sources)}`);
+
       card.innerHTML = `
         <blockquote class="wa-quote">${esc(quote)}</blockquote>
         ${annotation.customPrompt ? `<p class="wa-custom-tag">✎ ${esc(annotation.customPrompt)}</p>` : ''}
-        <p class="wa-explanation">${
-          loading
-            ? '<span class="wa-spinner"></span><span class="wa-loading-text">Analyzing with Gemini…</span>'
-            : esc(annotation.explanation)
-        }</p>
-        ${!loading ? sourcesHtml(annotation.sources) : ''}
+        ${bodyHtml}
         ${orphaned ? '<p class="wa-orphan-note">⚠ Text not found on this page</p>' : ''}
         ${!loading ? '<button class="wa-delete-btn" title="Delete annotation">✕</button>' : ''}
       `;
@@ -387,7 +464,11 @@
         e.stopPropagation();
         deleteAnnotation(annotation.id);
       });
-      card.addEventListener('click', () => scrollToHighlight(annotation.id));
+      // Don't intercept clicks on citation links — let them open normally.
+      card.addEventListener('click', e => {
+        if (e.target.closest('a')) return;
+        scrollToHighlight(annotation.id);
+      });
     }
 
     list.prepend(card);
@@ -399,25 +480,48 @@
     card.classList.remove('wa-loading');
     card.dataset.annotationId = annotation.id;
 
-    const explanationEl = card.querySelector('.wa-explanation');
-    if (explanationEl) explanationEl.textContent = annotation.explanation;
+    const isCite = annotation.type === 'cite';
+    if (isCite) card.classList.add('wa-card-cite');
 
-    if (annotation.customPrompt) {
-      const tag = card.querySelector('.wa-custom-tag');
-      if (!tag) {
-        const t = document.createElement('p');
-        t.className = 'wa-custom-tag';
-        t.textContent = '✎ ' + annotation.customPrompt;
-        card.querySelector('.wa-quote')?.insertAdjacentElement('afterend', t);
+    if (isCite) {
+      // Replace the loading <p class="wa-explanation"> with verdict + citations.
+      const loadingEl = card.querySelector('.wa-explanation');
+      const frag = document.createDocumentFragment();
+      if (annotation.verdict) {
+        const verdictEl = document.createElement('p');
+        verdictEl.className = 'wa-verdict';
+        verdictEl.textContent = annotation.verdict;
+        frag.appendChild(verdictEl);
       }
-    }
+      const citationsWrap = document.createElement('div');
+      citationsWrap.className = 'wa-citations';
+      citationsWrap.innerHTML = citationsHtml(annotation.citations);
+      frag.appendChild(citationsWrap);
+      if (loadingEl) {
+        loadingEl.replaceWith(frag);
+      } else {
+        card.appendChild(frag);
+      }
+    } else {
+      const explanationEl = card.querySelector('.wa-explanation');
+      if (explanationEl) explanationEl.textContent = annotation.explanation;
 
-    const srcs = sourcesHtml(annotation.sources);
-    if (srcs) {
-      const srcEl = document.createElement('div');
-      srcEl.innerHTML = srcs;
-      // insert after explanation, before the delete button
-      explanationEl?.insertAdjacentElement('afterend', srcEl.firstElementChild);
+      if (annotation.customPrompt) {
+        const tag = card.querySelector('.wa-custom-tag');
+        if (!tag) {
+          const t = document.createElement('p');
+          t.className = 'wa-custom-tag';
+          t.textContent = '✎ ' + annotation.customPrompt;
+          card.querySelector('.wa-quote')?.insertAdjacentElement('afterend', t);
+        }
+      }
+
+      const srcs = sourcesHtml(annotation.sources);
+      if (srcs) {
+        const srcEl = document.createElement('div');
+        srcEl.innerHTML = srcs;
+        explanationEl?.insertAdjacentElement('afterend', srcEl.firstElementChild);
+      }
     }
 
     const deleteBtn = document.createElement('button');
@@ -430,7 +534,10 @@
     });
     card.appendChild(deleteBtn);
 
-    card.addEventListener('click', () => scrollToHighlight(annotation.id));
+    card.addEventListener('click', e => {
+      if (e.target.closest('a')) return;
+      scrollToHighlight(annotation.id);
+    });
   }
 
   function showCardError(card, msg) {
@@ -472,13 +579,19 @@
   function showTooltip(mark) {
     if (!tooltipEnabled) return;
     const annotation = annotations.get(mark.dataset.annotationId);
-    const text = annotation?.type === 'note' ? annotation.noteText : annotation?.explanation;
-    if (!text) return;
+    if (!annotation) return;
+
+    const tooltipText = annotation.type === 'note'
+      ? annotation.noteText
+      : annotation.type === 'cite'
+        ? citeCountSummary(annotation.citations)
+        : annotation.explanation;
+    if (!tooltipText) return;
 
     const tooltip = document.getElementById('wa-tooltip');
     if (!tooltip) return;
 
-    tooltip.textContent = text;
+    tooltip.textContent = tooltipText;
 
     // Measure while invisible to compute position
     tooltip.style.visibility = 'hidden';
@@ -513,7 +626,7 @@
     const btn = document.getElementById('wa-annotate-btn');
     if (!btn) return;
     btn.style.display = 'flex';
-    const bw = 268;
+    const bw = 360;
     btn.style.left = Math.min(x, window.innerWidth - bw - 8) + 'px';
     btn.style.top = Math.max(8, y - 44) + 'px';
   }
@@ -676,6 +789,7 @@
       id,
       createdAt: Date.now(),
       anchor,
+      type: 'explain',
       explanation: response.explanation,
       sources: response.sources || [],
       selectedText,
@@ -685,6 +799,71 @@
     highlightRangeSafe(range, id);
     finalizeCard(loadingCard, annotation);
 
+    annotations.set(id, annotation);
+    updateTabCount();
+    updateEmptyMsg();
+
+    chrome.runtime.sendMessage({
+      type: 'SAVE_ANNOTATION',
+      payload: { url: window.location.href, annotation }
+    }).catch(() => {});
+  }
+
+  async function annotateCite() {
+    if (!pendingRange) return;
+
+    const range = pendingRange.cloneRange();
+    const selectedText = range.toString().trim();
+    if (!selectedText) return;
+
+    hideAnnotateBtn();
+    pendingRange = null;
+
+    const anchor = computeAnchor(range);
+    if (!anchor) return;
+
+    openSidebar();
+    const tempId = 'loading-' + Date.now();
+    const loadingCard = addAnnotationCard(
+      { id: tempId, selectedText, type: 'cite', citations: [] },
+      { loading: true }
+    );
+    updateEmptyMsg();
+
+    let response;
+    try {
+      response = await chrome.runtime.sendMessage({
+        type: 'CITE',
+        payload: {
+          selectedText,
+          pageTitle: document.title,
+          surroundingContext: anchor.prefix + selectedText + anchor.suffix
+        }
+      });
+    } catch (e) {
+      showCardError(loadingCard, 'Extension error — try reloading the page.');
+      return;
+    }
+
+    if (response?.error) {
+      showCardError(loadingCard, response.error);
+      return;
+    }
+
+    const id = crypto.randomUUID();
+    const annotation = {
+      id,
+      createdAt: Date.now(),
+      anchor,
+      type: 'cite',
+      claim: response.claim,
+      citations: response.citations,
+      selectedText,
+      ...(response.verdict ? { verdict: response.verdict } : {})
+    };
+
+    highlightRangeSafe(range, id);
+    finalizeCard(loadingCard, annotation);
     annotations.set(id, annotation);
     updateTabCount();
     updateEmptyMsg();
