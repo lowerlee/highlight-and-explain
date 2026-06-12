@@ -4,6 +4,54 @@ const GEMINI_MODEL_FLASH = 'gemini-2.5-flash';
 const GEMINI_MODEL_PRO = 'gemini-2.5-pro';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
+// ── Cost estimation ──────────────────────────────────────────────────────────
+// Gemini paid-tier pricing in USD per 1M tokens. See:
+// https://ai.google.dev/gemini-api/docs/pricing
+// Pro has a higher tier above a 200k-token prompt; our prompts are far smaller,
+// so the standard rates apply.
+const PRICING = {
+  [GEMINI_MODEL_FLASH]: { input: 0.30, output: 2.50 },
+  [GEMINI_MODEL_PRO]:   { input: 1.25, output: 10.00 }
+};
+// Google Search grounding: free up to 1,500 requests/day, then $35 per 1,000.
+// We include the paid rate as an upper-bound estimate; under the daily free
+// quota the real cost is $0.
+const SEARCH_COST_PER_REQUEST = 35 / 1000;
+
+// Pull billable token counts out of a Gemini response. thoughtsTokenCount
+// (thinking tokens) is billed at the output rate, so fold it into output.
+function usageFrom(data) {
+  const u = data?.usageMetadata || {};
+  return {
+    prompt: u.promptTokenCount || 0,
+    output: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0)
+  };
+}
+
+function costFor(model, prompt, output) {
+  const p = PRICING[model];
+  if (!p) return 0;
+  return (prompt / 1e6) * p.input + (output / 1e6) * p.output;
+}
+
+function makeCostAcc() {
+  return { promptTokens: 0, outputTokens: 0, totalTokens: 0, usd: 0, calls: 0, searchRequests: 0 };
+}
+
+// Fold one Gemini call's usage into a running cost accumulator.
+function addCall(acc, model, data, { search = false } = {}) {
+  const { prompt, output } = usageFrom(data);
+  acc.promptTokens += prompt;
+  acc.outputTokens += output;
+  acc.totalTokens += prompt + output;
+  acc.usd += costFor(model, prompt, output);
+  acc.calls += 1;
+  if (search) {
+    acc.searchRequests += 1;
+    acc.usd += SEARCH_COST_PER_REQUEST;
+  }
+}
+
 function extractJsonObject(text) {
   if (!text) return null;
   let s = text.trim();
@@ -68,6 +116,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     case 'LOAD_ANNOTATIONS':
       loadAnnotations(message.payload.url).then(sendResponse);
       return true;
+    case 'UPDATE_ANNOTATION':
+      updateAnnotation(message.payload).then(sendResponse);
+      return true;
     case 'DELETE_ANNOTATION':
       deleteAnnotation(message.payload).then(sendResponse);
       return true;
@@ -96,14 +147,14 @@ async function handleExplain({ selectedText, pageTitle, surroundingContext, cust
       body: JSON.stringify({
         systemInstruction: {
           parts: [{
-            text: `You are a knowledgeable assistant helping users understand text they've highlighted on a webpage. ${customPrompt ? 'Answer the user\'s specific question about the text.' : 'Provide clear, concise explanations (2-4 sentences). Focus on what the text means, key concepts, and why it matters.'} The user is reading: "${pageTitle}". Write in plain prose — no markdown, no bullet points, no bold or italic markers.`
+            text: `You are a knowledgeable assistant helping users understand text they've highlighted on a webpage. ${customPrompt ? 'Answer the user\'s specific question about the text.' : 'Provide clear, concise explanations (2-4 sentences). Focus on what the text means, key concepts, and why it matters.'} The user is reading: "${pageTitle}". Write in plain prose — no markdown, no bullet points, no bold or italic markers. Do not include inline citation markers, footnotes, or bracketed references such as [cite: ...], [1], or (source); any sources are shown separately.`
           }]
         },
         contents: [{
           role: 'user',
           parts: [{ text: userMessage }]
         }],
-        generationConfig: { maxOutputTokens: 512 },
+        generationConfig: { maxOutputTokens: 1024 },
         tools: [{ google_search: {} }]
       })
     });
@@ -118,12 +169,24 @@ async function handleExplain({ selectedText, pageTitle, surroundingContext, cust
     const text = candidate?.content?.parts?.[0]?.text;
     if (!text) return { error: 'Empty response from Gemini.' };
 
+    // Defensively strip any inline citation markers the model emits despite the
+    // instruction not to — including a dangling "[cite…" fragment left by a
+    // truncated response. Sources are surfaced separately below.
+    const explanation = text
+      .replace(/\[cite[^\]]*\]/gi, '')   // complete [cite: ...] markers
+      .replace(/\[cite[^\]]*$/i, '')     // truncated [cite… at the end
+      .replace(/[ \t]+([.,;:])/g, '$1')  // tidy stray space before punctuation
+      .trim();
+
     const chunks = candidate?.groundingMetadata?.groundingChunks || [];
     const sources = chunks
       .map(c => ({ uri: c.web?.uri, title: c.web?.title }))
       .filter(s => s.uri);
 
-    return { explanation: text, sources };
+    const cost = makeCostAcc();
+    addCall(cost, GEMINI_MODEL_FLASH, data, { search: true });
+
+    return { explanation, sources, cost };
   } catch (e) {
     return { error: `Network error: ${e.message}` };
   }
@@ -134,6 +197,7 @@ async function handleExplain({ selectedText, pageTitle, surroundingContext, cust
 // claim's verdict — fed into retrieval and classification so they target the
 // right framings. Internal only; not rendered. Returns null on failure so the
 // pipeline can proceed with no decomposition rather than failing the cite.
+// Returns { text, data } so the caller can bill the call; text is null on failure.
 async function decomposeClaim({ selectedText, pageTitle, surroundingContext, geminiApiKey }) {
   const url = `${GEMINI_API_BASE}/${GEMINI_MODEL_FLASH}:generateContent?key=${geminiApiKey}`;
   const system = `You analyze claims for definitional fragility. Given a claim, identify: (1) ambiguous terms whose definition would change whether the claim is true, (2) hidden assumptions the claim makes, (3) the main definitional or methodological choices that lead different authoritative sources to different answers. Be concrete and source-aware (name specific agencies, datasets, or conventions when relevant). Keep the whole response under 120 words. Return plain prose — no headings, no markdown.`;
@@ -150,14 +214,14 @@ async function decomposeClaim({ selectedText, pageTitle, surroundingContext, gem
     });
     if (!res.ok) {
       console.warn('[CITE] decomposition HTTP error', res.status);
-      return null;
+      return { text: null, data: null };
     }
     const data = await res.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    return text?.trim() || null;
+    return { text: text?.trim() || null, data };
   } catch (e) {
     console.warn('[CITE] decomposition network error', e);
-    return null;
+    return { text: null, data: null };
   }
 }
 
@@ -165,6 +229,7 @@ async function decomposeClaim({ selectedText, pageTitle, surroundingContext, gem
 // commits to a position (true / partially true / false / unverifiable) and
 // explains the definitional choice driving it, when relevant. Returns null on
 // failure — the card renders without a verdict rather than erroring.
+// Returns { text, data } so the caller can bill the call; text is null on failure.
 async function synthesizeVerdict({ selectedText, decomposition, citations, geminiApiKey }) {
   const url = `${GEMINI_API_BASE}/${GEMINI_MODEL_PRO}:generateContent?key=${geminiApiKey}`;
   const system = `You write a short verdict paragraph about a claim, given evidence already classified as supporting, contradicting, or contextualizing it. Commit to a verdict — "true", "partially true", "false", or "unverifiable" — and explain in one or two further sentences what drives it. When the claim is definitionally fragile, name the definitional choice and which framing makes it true vs false. Cite agencies or datasets by name when they appear in the evidence. 2–3 sentences total, under 80 words. Plain prose, no markdown, no headings, no source list.`;
@@ -182,14 +247,14 @@ async function synthesizeVerdict({ selectedText, decomposition, citations, gemin
     });
     if (!res.ok) {
       console.warn('[CITE] synthesis HTTP error', res.status);
-      return null;
+      return { text: null, data: null };
     }
     const data = await res.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    return text?.trim() || null;
+    return { text: text?.trim() || null, data };
   } catch (e) {
     console.warn('[CITE] synthesis network error', e);
-    return null;
+    return { text: null, data: null };
   }
 }
 
@@ -202,9 +267,13 @@ async function handleCite({ selectedText, pageTitle, surroundingContext }) {
   console.group('[CITE] claim:', selectedText);
   console.log('[CITE] page title:', pageTitle);
 
+  const cost = makeCostAcc();
+
   // ── Call 0: claim decomposition ────────────────────────────────────────────
 
-  const decomposition = await decomposeClaim({ selectedText, pageTitle, surroundingContext, geminiApiKey });
+  const dec = await decomposeClaim({ selectedText, pageTitle, surroundingContext, geminiApiKey });
+  const decomposition = dec.text;
+  if (dec.data) addCall(cost, GEMINI_MODEL_FLASH, dec.data);
   console.log('[CITE] Call 0 decomposition:\n', decomposition || '(none)');
 
   // ── Call 1: grounded retrieval ─────────────────────────────────────────────
@@ -232,6 +301,7 @@ async function handleCite({ selectedText, pageTitle, surroundingContext }) {
       return { error: err.error?.message || `Retrieval error ${res.status}` };
     }
     const data = await res.json();
+    addCall(cost, GEMINI_MODEL_FLASH, data, { search: true });
     const candidate = data.candidates?.[0];
     retrievalText = candidate?.content?.parts?.[0]?.text;
     groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
@@ -310,6 +380,7 @@ async function handleCite({ selectedText, pageTitle, surroundingContext }) {
       return { error: err.error?.message || `Classification error ${res.status}` };
     }
     const data = await res.json();
+    addCall(cost, GEMINI_MODEL_PRO, data);
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
     const finishReason = data.candidates?.[0]?.finishReason;
     console.log('[CITE] Call 2 finishReason:', finishReason);
@@ -351,19 +422,23 @@ async function handleCite({ selectedText, pageTitle, surroundingContext }) {
 
     // ── Call 3: synthesis (verdict paragraph) ────────────────────────────────
 
-    const verdict = await synthesizeVerdict({
+    const synth = await synthesizeVerdict({
       selectedText,
       decomposition,
       citations: parsed.citations,
       geminiApiKey
     });
+    const verdict = synth.text;
+    if (synth.data) addCall(cost, GEMINI_MODEL_PRO, synth.data);
     console.log('[CITE] Call 3 verdict:\n', verdict || '(none)');
 
+    console.log('[CITE] cost:', cost);
     console.log('[CITE] returning', parsed.citations.length, 'citations');
     console.groupEnd();
     return {
       claim: parsed.claim || selectedText,
       citations: parsed.citations,
+      cost,
       ...(verdict ? { verdict } : {})
     };
   } catch (e) {
@@ -386,6 +461,16 @@ async function loadAnnotations(url) {
   const key = normalizeUrl(url);
   const result = await chrome.storage.local.get(key);
   return { annotations: result[key] || [] };
+}
+
+async function updateAnnotation({ url, id, changes }) {
+  const key = normalizeUrl(url);
+  const result = await chrome.storage.local.get(key);
+  const existing = result[key] || [];
+  await chrome.storage.local.set({
+    [key]: existing.map(a => (a.id === id ? { ...a, ...changes } : a))
+  });
+  return { success: true };
 }
 
 async function deleteAnnotation({ url, id }) {

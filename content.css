@@ -2,11 +2,14 @@
 
 /* ── Annotate button ─────────────────────────────────────────────────────── */
 
+/* Scroll-wheel selection widget: one action pill at a time; scroll the wheel
+   over it or click a dot to cycle. The whole widget is colored by the active
+   action (via wa-action-* on #wa-annotate-btn). */
 #wa-annotate-btn {
   display: none; /* shown as flex via JS */
   position: fixed !important;
   z-index: 2147483647 !important;
-  flex-direction: row !important;
+  flex-direction: column !important;
   align-items: stretch !important;
   border-radius: 8px !important;
   overflow: hidden !important;
@@ -15,48 +18,56 @@
   font-size: 13px !important;
   font-weight: 500 !important;
   pointer-events: auto !important;
-  min-width: 360px !important;
+  background: #5b4ae8 !important; /* fallback; overridden by wa-action-* */
 }
 
-.wa-btn-half {
-  flex: 1 1 0 !important;
+/* Per-action colors, applied via the wa-action-<key> class on the widget
+   container; custom prompts share the 'custom' accent. */
+.wa-action-explain { background: #5b4ae8 !important; }
+.wa-action-cite    { background: #4a3bd4 !important; }
+.wa-action-note    { background: #1a7a6e !important; }
+.wa-action-custom  { background: #3d2f8f !important; }
+
+.wa-carousel-stage {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 5px !important;
-  padding: 8px 14px !important;
+  gap: 6px !important;
+  min-width: 124px !important;
+  padding: 9px 18px !important;
+  color: #fff !important;
   cursor: pointer !important;
   white-space: nowrap !important;
-  overflow: hidden !important;
-  transition: flex 0.2s ease !important;
   user-select: none !important;
-  color: #fff !important;
-  border: none !important;
+  transition: background 0.15s !important;
 }
-
-#wa-btn-basic {
-  background: #5b4ae8 !important;
+/* Lighten the whole widget (stage + dots) on hover, not just the stage. The
+   overlay is click-through so the pill and dots stay interactive, and the
+   container's overflow:hidden keeps it within the rounded corners. */
+#wa-annotate-btn:hover::after {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  pointer-events: none !important;
 }
-
-#wa-btn-cite {
-  background: #4a3bd4 !important;
+.wa-carousel-dots {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 7px !important;
+  padding: 0 0 7px !important;
 }
-
-#wa-btn-custom {
-  background: #3d2f8f !important;
+.wa-dot {
+  width: 5px !important;
+  height: 5px !important;
+  border-radius: 50% !important;
+  background: rgba(255, 255, 255, 0.45) !important;
+  cursor: pointer !important;
+  transition: background 0.15s, transform 0.15s !important;
 }
-
-#wa-btn-note {
-  background: #1a7a6e !important;
-}
-
-/* Hover expand: the hovered pane grows, siblings shrink */
-#wa-annotate-btn:has(.wa-btn-half:hover) .wa-btn-half {
-  flex: 0.6 1 0 !important;
-}
-#wa-annotate-btn .wa-btn-half:hover {
-  flex: 2.5 1 0 !important;
-}
+.wa-dot:hover { background: rgba(255, 255, 255, 0.8) !important; }
+.wa-dot-active { background: #fff !important; transform: scale(1.25) !important; }
 
 .wa-btn-icon {
   flex-shrink: 0 !important;
@@ -65,57 +76,6 @@
 .wa-btn-label {
   overflow: hidden !important;
   text-overflow: ellipsis !important;
-}
-
-.wa-btn-divider {
-  width: 1px !important;
-  background: rgba(255, 255, 255, 0.2) !important;
-  flex-shrink: 0 !important;
-}
-
-/* ── Custom prompt input ─────────────────────────────────────────────────── */
-
-#wa-custom-input {
-  display: none; /* shown as flex via JS */
-  position: fixed !important;
-  z-index: 2147483647 !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 6px !important;
-  background: #fff !important;
-  border: 2px solid #5b4ae8 !important;
-  border-radius: 8px !important;
-  padding: 6px 8px !important;
-  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.2) !important;
-  width: 300px !important;
-  pointer-events: auto !important;
-}
-
-#wa-custom-prompt {
-  flex: 1 !important;
-  border: none !important;
-  outline: none !important;
-  font-size: 13px !important;
-  font-family: system-ui, -apple-system, sans-serif !important;
-  color: #1a1a2e !important;
-  background: transparent !important;
-  padding: 2px 4px !important;
-}
-
-#wa-custom-submit {
-  background: #5b4ae8 !important;
-  color: #fff !important;
-  border: none !important;
-  border-radius: 5px !important;
-  padding: 4px 10px !important;
-  font-size: 14px !important;
-  cursor: pointer !important;
-  flex-shrink: 0 !important;
-  transition: background 0.15s !important;
-}
-
-#wa-custom-submit:hover {
-  background: #4a3bd4 !important;
 }
 
 /* ── Note input ──────────────────────────────────────────────────────────── */
@@ -200,9 +160,10 @@ mark.wa-note-highlight.wa-active {
 
 /* ── Sidebar shell ───────────────────────────────────────────────────────── */
 /*
-  The sidebar is 344px wide = 24px tab + 320px content.
-  When closed: translateX(calc(100% - 24px)) — only the tab shows.
-  When open:   translateX(0) — full sidebar visible.
+  The panel is 344px wide and sits fully off-screen when closed. A small white
+  arrow chip hangs off its left edge and stays visible. Hovering the chip (or
+  the panel) slides it open; .wa-open keeps it pinned open for programmatic
+  opens (e.g. after adding an annotation) and clicks.
 */
 
 #wa-sidebar {
@@ -214,7 +175,7 @@ mark.wa-note-highlight.wa-active {
   z-index: 2147483646 !important;
   display: flex !important;
   flex-direction: row !important;
-  transform: translateX(calc(100% - 24px)) !important;
+  transform: translateX(100%) !important;
   transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
   pointer-events: auto !important;
   box-sizing: border-box !important;
@@ -232,27 +193,34 @@ mark.wa-note-highlight.wa-active {
   display: none !important;
 }
 
-/* ── Sidebar tab (always visible) ────────────────────────────────────────── */
+/* ── Sidebar tab — small white arrow chip on the right edge ──────────────── */
 
 #wa-sidebar-tab {
-  width: 24px !important;
-  min-width: 24px !important;
-  height: 100% !important;
-  background: #5b4ae8 !important;
+  position: absolute !important;
+  left: -28px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 28px !important;
+  min-width: 28px !important;
+  padding: 10px 0 !important;
+  background: #fff !important;
+  border: 1px solid #e0ddf8 !important;
+  border-right: none !important;
+  border-radius: 10px 0 0 10px !important;
+  box-shadow: -2px 0 10px rgba(0, 0, 0, 0.10) !important;
   display: flex !important;
   flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 8px !important;
+  gap: 6px !important;
   cursor: pointer !important;
-  border-radius: 0 !important;
-  color: rgba(255, 255, 255, 0.9) !important;
+  color: #5b4ae8 !important;
   user-select: none !important;
   transition: background 0.15s ease !important;
 }
 
 #wa-sidebar-tab:hover {
-  background: #4a3bd4 !important;
+  background: #f5f3ff !important;
 }
 
 #wa-sidebar-tab svg {
@@ -262,18 +230,25 @@ mark.wa-note-highlight.wa-active {
   fill: none !important;
   stroke-linecap: round !important;
   stroke-linejoin: round !important;
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* Arrow points left (◄) when closed; flips to point right (►) when open */
+#wa-sidebar.wa-open #wa-sidebar-tab svg {
+  transform: rotate(180deg) !important;
 }
 
 #wa-tab-count {
-  font-size: 11px !important;
+  font-size: 10px !important;
   font-weight: 700 !important;
-  background: rgba(255, 255, 255, 0.25) !important;
+  background: #5b4ae8 !important;
+  color: #fff !important;
   border-radius: 10px !important;
-  padding: 2px 5px !important;
+  padding: 1px 5px !important;
   min-width: 16px !important;
   text-align: center !important;
   display: block !important;
-  line-height: 1.3 !important;
+  line-height: 1.4 !important;
 }
 
 #wa-tab-count:empty {
@@ -302,11 +277,29 @@ mark.wa-note-highlight.wa-active {
   flex-shrink: 0 !important;
 }
 
+.wa-header-titles {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  min-width: 0 !important;
+}
+
 #wa-sidebar-title {
   font-weight: 700 !important;
   font-size: 15px !important;
   color: #1a1a2e !important;
   letter-spacing: -0.01em !important;
+}
+
+.wa-cost-total {
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  color: #6b6890 !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+.wa-cost-total:empty {
+  display: none !important;
 }
 
 #wa-sidebar-close {
@@ -452,14 +445,32 @@ mark.wa-note-highlight.wa-active {
   margin: 6px 0 0 0 !important;
 }
 
+.wa-cost {
+  display: flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  margin: 8px 0 0 0 !important;
+  padding-top: 7px !important;
+  border-top: 1px dashed #ebebf5 !important;
+  font-size: 10.5px !important;
+  color: #8a87a8 !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+.wa-cost-usd {
+  font-weight: 600 !important;
+  color: #5b4ae8 !important;
+}
+
+.wa-cost-sep {
+  opacity: 0.5 !important;
+}
+
 .wa-error-icon {
   color: #d9534f !important;
 }
 
 .wa-delete-btn {
-  position: absolute !important;
-  top: 8px !important;
-  right: 8px !important;
   background: none !important;
   border: none !important;
   color: #ccc !important;
@@ -470,6 +481,14 @@ mark.wa-note-highlight.wa-active {
   border-radius: 4px !important;
   transition: color 0.15s, background 0.15s !important;
   display: none !important;
+}
+
+/* Explain/cite cards float the delete button over the top-right corner; note
+   cards place it in the header row instead (see .wa-note-actions). */
+.wa-card:not(.wa-note-card) .wa-delete-btn {
+  position: absolute !important;
+  top: 8px !important;
+  right: 8px !important;
 }
 
 .wa-card:hover .wa-delete-btn {
@@ -686,13 +705,29 @@ mark.wa-note-highlight.wa-active {
   background: rgba(26, 122, 110, 0.06) !important;
 }
 
+/* Header row: "Personal note" label on the left, action buttons on the right. */
+.wa-note-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  margin: 0 0 6px 0 !important;
+  min-height: 22px !important; /* reserve room so the row doesn't jump on hover */
+}
+
+.wa-note-actions {
+  display: flex !important;
+  gap: 2px !important;
+  flex-shrink: 0 !important;
+}
+
 .wa-note-indicator {
   font-size: 11px !important;
   color: #1a7a6e !important;
   background: rgba(26, 122, 110, 0.08) !important;
   border-radius: 4px !important;
   padding: 3px 7px !important;
-  margin: 0 0 6px 0 !important;
+  margin: 0 !important;
   font-style: italic !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
@@ -706,3 +741,127 @@ mark.wa-note-highlight.wa-active {
   line-height: 1.6 !important;
   word-break: break-word !important;
 }
+
+/* ── Markdown inside note bodies ──────────────────────────────────────────── */
+
+.wa-note-body .wa-md-p { margin: 0 0 6px 0 !important; }
+.wa-note-body .wa-md-p:last-child,
+.wa-note-body > :last-child { margin-bottom: 0 !important; }
+
+.wa-note-body .wa-md-h {
+  font-weight: 700 !important;
+  color: #14302c !important;
+  margin: 8px 0 4px 0 !important;
+  line-height: 1.3 !important;
+}
+.wa-note-body .wa-md-h:first-child { margin-top: 0 !important; }
+.wa-note-body .wa-md-h1 { font-size: 15px !important; }
+.wa-note-body .wa-md-h2 { font-size: 14px !important; }
+.wa-note-body .wa-md-h3 { font-size: 13px !important; }
+
+.wa-note-body .wa-md-list {
+  margin: 0 0 6px 0 !important;
+  padding-left: 20px !important;
+}
+.wa-note-body .wa-md-list li { margin: 2px 0 !important; }
+
+.wa-note-body .wa-md-quote {
+  margin: 0 0 6px 0 !important;
+  padding: 2px 0 2px 10px !important;
+  border-left: 3px solid #7ecdc4 !important;
+  color: #3a5450 !important;
+}
+
+.wa-note-body code {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace !important;
+  font-size: 12px !important;
+  background: rgba(26, 122, 110, 0.1) !important;
+  padding: 1px 5px !important;
+  border-radius: 4px !important;
+}
+
+.wa-note-body strong { font-weight: 700 !important; }
+.wa-note-body em { font-style: italic !important; }
+
+.wa-note-body a {
+  color: #1a7a6e !important;
+  text-decoration: underline !important;
+}
+.wa-note-body a:hover { color: #14564d !important; }
+
+/* ── Note editing ─────────────────────────────────────────────────────────── */
+
+/* The edit button only appears in a note's header row, so it sits in-flow
+   (not absolutely positioned like the delete button on other cards). */
+.wa-edit-btn {
+  background: none !important;
+  border: none !important;
+  color: #bbb !important;
+  cursor: pointer !important;
+  font-size: 13px !important;
+  line-height: 1 !important;
+  padding: 3px 5px !important;
+  border-radius: 4px !important;
+  transition: color 0.15s, background 0.15s !important;
+  display: none !important;
+}
+
+.wa-card:hover .wa-edit-btn { display: block !important; }
+
+.wa-edit-btn:hover {
+  color: #1a7a6e !important;
+  background: rgba(26, 122, 110, 0.1) !important;
+}
+
+/* Hide the row of icon buttons while the inline editor is open. */
+.wa-card.wa-editing .wa-edit-btn,
+.wa-card.wa-editing .wa-delete-btn { display: none !important; }
+
+.wa-note-edit {
+  margin: 0 0 4px 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+}
+
+.wa-note-textarea {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  font-family: inherit !important;
+  font-size: 13px !important;
+  color: #1a3330 !important;
+  line-height: 1.5 !important;
+  border: 1px solid #7ecdc4 !important;
+  border-radius: 6px !important;
+  padding: 7px 9px !important;
+  background: #fff !important;
+  outline: none !important;
+  resize: vertical !important;
+}
+
+.wa-note-textarea:focus {
+  border-color: #1a7a6e !important;
+  box-shadow: 0 0 0 2px rgba(26, 122, 110, 0.15) !important;
+}
+
+.wa-note-edit-actions {
+  display: flex !important;
+  gap: 6px !important;
+}
+
+.wa-note-save,
+.wa-note-cancel {
+  border: none !important;
+  border-radius: 6px !important;
+  padding: 5px 12px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: background 0.15s !important;
+}
+
+.wa-note-save { background: #1a7a6e !important; color: #fff !important; }
+.wa-note-save:hover { background: #14564d !important; }
+
+.wa-note-cancel { background: #e6efed !important; color: #3a5450 !important; }
+.wa-note-cancel:hover { background: #d3e3df !important; }

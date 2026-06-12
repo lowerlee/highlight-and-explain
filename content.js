@@ -8,6 +8,9 @@
 
   const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'CANVAS']);
   const CONTEXT_CHARS = 32;
+  // Fallback widget width for viewport-edge clamping when the element hasn't
+  // been measured yet.
+  const WIDGET_MAX_WIDTH = 360;
 
   // ── State ──────────────────────────────────────────────────────────────────
 
@@ -16,6 +19,82 @@
   let extensionEnabled = true;
   let sidebarEnabled = true;
   let tooltipEnabled = true;
+
+  // ── Selection-widget configuration ───────────────────────────────────────────
+  // The built-in actions. `run` is invoked when the action is chosen; the
+  // referenced functions are hoisted declarations defined later in this file.
+  // Keep icons/labels/order in sync with ACTION_META in popup.js.
+  const BUILTIN_DEFS = {
+    explain: { icon: '✦', label: 'Explain', run: () => annotate() },
+    cite:    { icon: '⚖', label: 'Cite',    run: () => annotateCite() },
+    note:    { icon: '✏', label: 'Note',    run: () => showNoteInput() }
+  };
+  const DEFAULT_ACTION_ORDER = ['explain', 'cite', 'note'];
+  // Color classes (wa-action-<key>) the carousel applies to the widget; custom
+  // prompts share the 'custom' accent.
+  const ACTION_COLOR_KEYS = ['explain', 'cite', 'note', 'custom'];
+
+  // Which built-in actions (in order) are enabled, plus user-defined custom
+  // prompts. Overwritten by stored settings on init and live via UPDATE_SETTINGS.
+  let actionConfig = DEFAULT_ACTION_ORDER.map(id => ({ id, enabled: true }));
+  let customPrompts = []; // { id, label, prompt, enabled }
+  let carouselIndex = 0;  // current pill index in the scroll wheel
+
+  // Reconcile stored config with the known built-ins: keep stored order/enabled
+  // for recognized ids, drop unknowns, and append any built-in the user hasn't
+  // seen (so a previously-stored 'custom' action is silently dropped).
+  function normalizeActionConfig(stored) {
+    const result = [];
+    const seen = new Set();
+    if (Array.isArray(stored)) {
+      for (const item of stored) {
+        if (item && BUILTIN_DEFS[item.id] && !seen.has(item.id)) {
+          result.push({ id: item.id, enabled: item.enabled !== false });
+          seen.add(item.id);
+        }
+      }
+    }
+    for (const id of DEFAULT_ACTION_ORDER) {
+      if (!seen.has(id)) result.push({ id, enabled: true });
+    }
+    return result;
+  }
+
+  function normalizeCustomPrompts(stored) {
+    if (!Array.isArray(stored)) return [];
+    return stored
+      .filter(p => p && typeof p.prompt === 'string')
+      .map(p => ({
+        id: p.id || crypto.randomUUID(),
+        label: (p.label || '').trim(),
+        prompt: p.prompt,
+        enabled: p.enabled !== false
+      }));
+  }
+
+  // The ordered list of actions shown in the wheel: enabled built-ins (in their
+  // configured order) followed by enabled custom prompts. Each entry resolves to
+  // { key, colorKey, icon, label, run }.
+  function resolvedActions() {
+    const list = [];
+    for (const a of actionConfig) {
+      if (a.enabled && BUILTIN_DEFS[a.id]) {
+        list.push({ key: a.id, colorKey: a.id, ...BUILTIN_DEFS[a.id] });
+      }
+    }
+    for (const p of customPrompts) {
+      if (p.enabled && p.prompt.trim()) {
+        list.push({
+          key: 'custom:' + p.id,
+          colorKey: 'custom',
+          icon: '✎',
+          label: p.label || 'Custom',
+          run: () => annotate(p.prompt)
+        });
+      }
+    }
+    return list;
+  }
 
   // ── Text utilities (anchoring) ─────────────────────────────────────────────
 
@@ -175,66 +254,19 @@
   // ── UI injection ───────────────────────────────────────────────────────────
 
   function injectUI() {
-    // Split annotate button
+    // Selection-action widget (scroll wheel) — contents are rendered dynamically
+    // from the enabled actions + custom prompts (see renderAnnotateWidget).
     const btn = document.createElement('div');
     btn.id = 'wa-annotate-btn';
-    btn.innerHTML = `
-      <div class="wa-btn-half" id="wa-btn-basic">
-        <span class="wa-btn-icon">✦</span>
-        <span class="wa-btn-label">Explain</span>
-      </div>
-      <div class="wa-btn-divider"></div>
-      <div class="wa-btn-half" id="wa-btn-cite">
-        <span class="wa-btn-icon">⚖</span>
-        <span class="wa-btn-label">Cite</span>
-      </div>
-      <div class="wa-btn-divider"></div>
-      <div class="wa-btn-half" id="wa-btn-custom">
-        <span class="wa-btn-icon">✎</span>
-        <span class="wa-btn-label">Custom</span>
-      </div>
-      <div class="wa-btn-divider"></div>
-      <div class="wa-btn-half" id="wa-btn-note">
-        <span class="wa-btn-icon">✏</span>
-        <span class="wa-btn-label">Note</span>
-      </div>
-    `;
     document.body.appendChild(btn);
 
-    document.getElementById('wa-btn-basic').addEventListener('click', e => {
-      e.stopPropagation();
-      annotate();
-    });
-    document.getElementById('wa-btn-cite').addEventListener('click', e => {
-      e.stopPropagation();
-      annotateCite();
-    });
-    document.getElementById('wa-btn-custom').addEventListener('click', e => {
-      e.stopPropagation();
-      showCustomInput();
-    });
-    document.getElementById('wa-btn-note').addEventListener('click', e => {
-      e.stopPropagation();
-      showNoteInput();
-    });
+    // Wheel cycles through the available actions.
+    btn.addEventListener('wheel', e => {
+      e.preventDefault();
+      cycleCarousel(e.deltaY > 0 ? 1 : -1);
+    }, { passive: false });
 
-    // Custom prompt input
-    const customInput = document.createElement('div');
-    customInput.id = 'wa-custom-input';
-    customInput.innerHTML = `
-      <input type="text" id="wa-custom-prompt" placeholder="Ask anything about this…" autocomplete="off" spellcheck="false">
-      <button id="wa-custom-submit" title="Submit (Enter)">↵</button>
-    `;
-    document.body.appendChild(customInput);
-
-    document.getElementById('wa-custom-submit').addEventListener('click', e => {
-      e.stopPropagation();
-      submitCustomPrompt();
-    });
-    document.getElementById('wa-custom-prompt').addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.stopPropagation(); submitCustomPrompt(); }
-      if (e.key === 'Escape') { e.stopPropagation(); hideCustomInput(); }
-    });
+    renderAnnotateWidget();
 
     // Note input
     const noteInput = document.createElement('div');
@@ -260,13 +292,16 @@
     sidebar.innerHTML = `
       <div id="wa-sidebar-tab" title="Toggle annotations">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-          <path id="wa-tab-arrow-path" d="M8 1L3 6l5 5"/>
+          <path d="M8 1L3 6l5 5"/>
         </svg>
         <span id="wa-tab-count"></span>
       </div>
       <div id="wa-sidebar-inner">
         <div id="wa-sidebar-header">
-          <span id="wa-sidebar-title">Annotations</span>
+          <div class="wa-header-titles">
+            <span id="wa-sidebar-title">Annotations</span>
+            <span id="wa-cost-total" class="wa-cost-total" title="Estimated Gemini usage for this page"></span>
+          </div>
           <button id="wa-sidebar-close" title="Close">✕</button>
         </div>
         <div id="wa-annotations-list">
@@ -285,9 +320,81 @@
     document.body.appendChild(tooltip);
   }
 
+  // ── Selection-widget rendering (scroll wheel) ─────────────────────────────────
+
+  // Inner markup (icon + label) for the carousel stage.
+  function pillInner(action) {
+    return `<span class="wa-btn-icon">${esc(action.icon)}</span><span class="wa-btn-label">${esc(action.label)}</span>`;
+  }
+
+  // (Re)render the widget: one action "stage" pill plus position dots.
+  function renderAnnotateWidget() {
+    const btn = document.getElementById('wa-annotate-btn');
+    if (!btn) return;
+    btn.innerHTML = '';
+    ACTION_COLOR_KEYS.forEach(c => btn.classList.remove('wa-action-' + c));
+
+    const actions = resolvedActions();
+    if (!actions.length) return;
+    if (carouselIndex >= actions.length) carouselIndex = 0;
+
+    const stage = document.createElement('div');
+    stage.className = 'wa-carousel-stage';
+    stage.addEventListener('click', e => {
+      e.stopPropagation();
+      resolvedActions()[carouselIndex]?.run();
+    });
+
+    // Dots are a position indicator and a click-to-jump control; the wheel cycles.
+    const dots = document.createElement('div');
+    dots.className = 'wa-carousel-dots';
+    dots.addEventListener('click', e => {
+      e.stopPropagation();
+      const dot = e.target.closest('.wa-dot');
+      if (!dot) return;
+      const idx = Number(dot.dataset.i);
+      if (Number.isNaN(idx) || idx >= resolvedActions().length) return;
+      carouselIndex = idx;
+      updateCarousel();
+    });
+
+    btn.append(stage, dots);
+    updateCarousel();
+  }
+
+  function cycleCarousel(dir) {
+    const n = resolvedActions().length;
+    if (!n) return;
+    carouselIndex = (carouselIndex + dir + n) % n;
+    updateCarousel();
+  }
+
+  function updateCarousel() {
+    const btn = document.getElementById('wa-annotate-btn');
+    if (!btn) return;
+    const actions = resolvedActions();
+    if (!actions.length) return;
+    if (carouselIndex >= actions.length) carouselIndex = 0;
+    const action = actions[carouselIndex];
+
+    // Color the whole widget by the active action so it reads as one pill.
+    ACTION_COLOR_KEYS.forEach(c => btn.classList.remove('wa-action-' + c));
+    btn.classList.add('wa-action-' + action.colorKey);
+
+    const stage = btn.querySelector('.wa-carousel-stage');
+    if (stage) stage.innerHTML = pillInner(action);
+
+    const dots = btn.querySelector('.wa-carousel-dots');
+    if (dots) {
+      dots.innerHTML = actions
+        .map((_, i) => `<span class="wa-dot${i === carouselIndex ? ' wa-dot-active' : ''}" data-i="${i}"></span>`)
+        .join('');
+    }
+  }
+
   // ── Sidebar control ────────────────────────────────────────────────────────
 
-  function applySettings({ extensionEnabled: ee, sidebarEnabled: se, tooltipEnabled: te }) {
+  function applySettings({ extensionEnabled: ee, sidebarEnabled: se, tooltipEnabled: te, actionConfig: ac, customPrompts: cp }) {
     if (ee !== undefined) {
       extensionEnabled = ee;
       if (!extensionEnabled) { hideAnnotateBtn(); pendingRange = null; }
@@ -295,27 +402,28 @@
     if (se !== undefined) sidebarEnabled = se;
     if (te !== undefined) tooltipEnabled = te;
 
-    const sidebar = document.getElementById('wa-sidebar');
-    if (sidebar) sidebar.classList.toggle('wa-hidden', !sidebarEnabled);
+    let widgetDirty = false;
+    if (ac !== undefined) { actionConfig = normalizeActionConfig(ac); widgetDirty = true; }
+    if (cp !== undefined) { customPrompts = normalizeCustomPrompts(cp); widgetDirty = true; }
+    if (widgetDirty) { carouselIndex = 0; renderAnnotateWidget(); }
 
-    if (!tooltipEnabled) hideTooltip();
+    const sidebar = document.getElementById('wa-sidebar');
+    if (sidebar) sidebar.classList.toggle('wa-hidden', !(extensionEnabled && sidebarEnabled));
+
+    if (!(extensionEnabled && tooltipEnabled)) hideTooltip();
   }
 
   function openSidebar() {
-    if (!sidebarEnabled) return;
+    if (!extensionEnabled || !sidebarEnabled) return;
     const sidebar = document.getElementById('wa-sidebar');
     if (!sidebar) return;
     sidebar.classList.add('wa-open');
-    const arrow = document.getElementById('wa-tab-arrow-path');
-    if (arrow) arrow.setAttribute('d', 'M4 1l5 5-5 5');
   }
 
   function closeSidebar() {
     const sidebar = document.getElementById('wa-sidebar');
     if (!sidebar) return;
     sidebar.classList.remove('wa-open');
-    const arrow = document.getElementById('wa-tab-arrow-path');
-    if (arrow) arrow.setAttribute('d', 'M8 1L3 6l5 5');
   }
 
   function toggleSidebar() {
@@ -329,6 +437,7 @@
     if (!el) return;
     const count = annotations.size;
     el.textContent = count > 0 ? String(count) : '';
+    updatePageCost();
   }
 
   function updateEmptyMsg() {
@@ -344,6 +453,141 @@
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  // ── Markdown (notes) ─────────────────────────────────────────────────────────
+
+  // Only http(s) and mailto links are allowed, to block javascript:/data: URIs.
+  // The href is already HTML-escaped by esc(), so it can't break out of the
+  // attribute; this just rejects dangerous schemes.
+  function mdSafeUrl(href) {
+    const v = href.trim();
+    return /^(https?:\/\/|mailto:)/i.test(v) ? v : null;
+  }
+
+  // Minimal, XSS-safe Markdown for personal notes. The whole input is
+  // HTML-escaped first, then a small set of tokens is rewritten into a fixed
+  // allow-list of tags — so raw HTML in a note can never execute. Supports
+  // #/##/### headings, **bold**, *italic*, `code`, [text](url), - / 1. lists,
+  // > blockquotes, and paragraphs (single newline → <br>, blank line → new block).
+  function renderMarkdown(src) {
+    const lines = esc(src || '').split('\n');
+
+    const inline = (s) => {
+      // Protect code spans so emphasis/link rules don't touch their contents.
+      // The sentinel is a NUL char built at runtime (never present in note
+      // text), so placeholders can't collide with content like "3 apples".
+      const SENTINEL = String.fromCharCode(0);
+      const codes = [];
+      s = s.replace(/`([^`]+)`/g, (_m, c) => SENTINEL + (codes.push(c) - 1) + SENTINEL);
+      s = s
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        .replace(/_([^_]+)_/g, '<em>$1</em>')
+        .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, href) => {
+          const safe = mdSafeUrl(href);
+          return safe ? `<a href="${safe}" target="_blank" rel="noopener">${text}</a>` : m;
+        });
+      return s.replace(new RegExp(SENTINEL + '(\\d+)' + SENTINEL, 'g'), (_m, n) => `<code>${codes[Number(n)]}</code>`);
+    };
+
+    const isSpecial = (l) =>
+      /^#{1,3}\s+/.test(l) || /^>\s?/.test(l) || /^[-*+]\s+/.test(l) || /^\d+\.\s+/.test(l);
+
+    const out = [];
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+
+      if (!line.trim()) { i++; continue; }
+
+      const h = line.match(/^(#{1,3})\s+(.*)$/);
+      if (h) {
+        out.push(`<div class="wa-md-h wa-md-h${h[1].length}">${inline(h[2].trim())}</div>`);
+        i++;
+        continue;
+      }
+
+      if (/^>\s?/.test(line)) {
+        const buf = [];
+        while (i < lines.length && /^>\s?/.test(lines[i])) { buf.push(inline(lines[i].replace(/^>\s?/, ''))); i++; }
+        out.push(`<blockquote class="wa-md-quote">${buf.join('<br>')}</blockquote>`);
+        continue;
+      }
+
+      if (/^[-*+]\s+/.test(line)) {
+        const items = [];
+        while (i < lines.length && /^[-*+]\s+/.test(lines[i])) { items.push(`<li>${inline(lines[i].replace(/^[-*+]\s+/, ''))}</li>`); i++; }
+        out.push(`<ul class="wa-md-list">${items.join('')}</ul>`);
+        continue;
+      }
+
+      if (/^\d+\.\s+/.test(line)) {
+        const items = [];
+        while (i < lines.length && /^\d+\.\s+/.test(lines[i])) { items.push(`<li>${inline(lines[i].replace(/^\d+\.\s+/, ''))}</li>`); i++; }
+        out.push(`<ol class="wa-md-list">${items.join('')}</ol>`);
+        continue;
+      }
+
+      const buf = [];
+      while (i < lines.length && lines[i].trim() && !isSpecial(lines[i])) { buf.push(inline(lines[i])); i++; }
+      out.push(`<p class="wa-md-p">${buf.join('<br>')}</p>`);
+    }
+
+    return out.join('');
+  }
+
+  // The note-body markup, shared by the card template and the edit re-render so
+  // the wrapper/class can't drift between them.
+  function noteBodyHtml(annotation) {
+    return `<div class="wa-note-body">${renderMarkdown(annotation.noteText)}</div>`;
+  }
+
+  // The same body as a DOM element (for swapping back in after an edit).
+  function renderNoteBodyEl(annotation) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = noteBodyHtml(annotation);
+    return wrap.firstElementChild;
+  }
+
+  // ── Cost formatting ──────────────────────────────────────────────────────────
+
+  // Keep in sync with fmtUsd in popup.js (no shared module across contexts).
+  function fmtUsd(usd) {
+    if (!usd) return '$0';
+    // Sub-cent costs need more precision to be meaningful.
+    return usd < 0.01 ? '$' + usd.toFixed(4) : '$' + usd.toFixed(2);
+  }
+
+  function fmtTokens(n) {
+    return (n || 0).toLocaleString();
+  }
+
+  function costHtml(cost) {
+    if (!cost || !cost.totalTokens) return '';
+    const detail = `${fmtTokens(cost.promptTokens)} in + ${fmtTokens(cost.outputTokens)} out`
+      + (cost.calls > 1 ? ` · ${cost.calls} model calls` : '')
+      + (cost.searchRequests ? ` · ${cost.searchRequests} search${cost.searchRequests > 1 ? 'es' : ''}` : '');
+    return `<div class="wa-cost" title="${esc(detail)}">`
+      + `<span class="wa-cost-tokens">${fmtTokens(cost.totalTokens)} tokens</span>`
+      + `<span class="wa-cost-sep">·</span>`
+      + `<span class="wa-cost-usd">${fmtUsd(cost.usd)}</span></div>`;
+  }
+
+  function computePageCost() {
+    let usd = 0, tokens = 0;
+    for (const a of annotations.values()) {
+      if (a.cost) { usd += a.cost.usd || 0; tokens += a.cost.totalTokens || 0; }
+    }
+    return { usd, tokens };
+  }
+
+  function updatePageCost() {
+    const el = document.getElementById('wa-cost-total');
+    if (!el) return;
+    const { usd, tokens } = computePageCost();
+    el.textContent = tokens > 0 ? `${fmtTokens(tokens)} tokens · ${fmtUsd(usd)}` : '';
   }
 
   function sourcesHtml(sources) {
@@ -432,12 +676,19 @@
       : annotation.selectedText;
 
     if (isNote) {
+      // Keep the action buttons in the note's header row (next to the "Personal
+      // note" label) rather than absolutely positioned over the quoted highlight.
       card.innerHTML = `
         <blockquote class="wa-quote wa-quote-note">${esc(quote)}</blockquote>
-        <p class="wa-note-indicator">✏ Personal note</p>
-        <p class="wa-note-body">${esc(annotation.noteText)}</p>
+        <div class="wa-note-header">
+          <span class="wa-note-indicator">✏ Personal note</span>
+          <div class="wa-note-actions">
+            <button class="wa-edit-btn" title="Edit note">✎</button>
+            <button class="wa-delete-btn" title="Delete note">✕</button>
+          </div>
+        </div>
+        ${noteBodyHtml(annotation)}
         ${orphaned ? '<p class="wa-orphan-note">⚠ Text not found on this page</p>' : ''}
-        <button class="wa-delete-btn" title="Delete note">✕</button>
       `;
     } else {
       const loadingText = isCite ? 'Searching and classifying sources…' : 'Analyzing with Gemini…';
@@ -454,6 +705,7 @@
         <blockquote class="wa-quote">${esc(quote)}</blockquote>
         ${annotation.customPrompt ? `<p class="wa-custom-tag">✎ ${esc(annotation.customPrompt)}</p>` : ''}
         ${bodyHtml}
+        ${!loading ? costHtml(annotation.cost) : ''}
         ${orphaned ? '<p class="wa-orphan-note">⚠ Text not found on this page</p>' : ''}
         ${!loading ? '<button class="wa-delete-btn" title="Delete annotation">✕</button>' : ''}
       `;
@@ -463,6 +715,10 @@
       card.querySelector('.wa-delete-btn').addEventListener('click', e => {
         e.stopPropagation();
         deleteAnnotation(annotation.id);
+      });
+      card.querySelector('.wa-edit-btn')?.addEventListener('click', e => {
+        e.stopPropagation();
+        startNoteEdit(annotation.id);
       });
       // Don't intercept clicks on citation links — let them open normally.
       card.addEventListener('click', e => {
@@ -524,6 +780,13 @@
       }
     }
 
+    const costMarkup = costHtml(annotation.cost);
+    if (costMarkup) {
+      const wrap = document.createElement('div');
+      wrap.innerHTML = costMarkup;
+      card.appendChild(wrap.firstElementChild);
+    }
+
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'wa-delete-btn';
     deleteBtn.title = 'Delete annotation';
@@ -577,7 +840,7 @@
   // ── Hover tooltip ─────────────────────────────────────────────────────────
 
   function showTooltip(mark) {
-    if (!tooltipEnabled) return;
+    if (!extensionEnabled || !tooltipEnabled) return;
     const annotation = annotations.get(mark.dataset.annotationId);
     if (!annotation) return;
 
@@ -623,48 +886,24 @@
   // ── Annotate button ────────────────────────────────────────────────────────
 
   function showAnnotateBtn(x, y) {
+    if (!resolvedActions().length) return; // nothing to show
     const btn = document.getElementById('wa-annotate-btn');
     if (!btn) return;
+    // Reset the wheel to the first action and re-sync the visible pill/dots; the
+    // widget is reused across selections, so a stale render would otherwise show
+    // one action while clicking it runs another.
+    carouselIndex = 0;
+    updateCarousel();
     btn.style.display = 'flex';
-    const bw = 360;
+    const bw = btn.offsetWidth || WIDGET_MAX_WIDTH;
     btn.style.left = Math.min(x, window.innerWidth - bw - 8) + 'px';
-    btn.style.top = Math.max(8, y - 44) + 'px';
+    btn.style.top = Math.max(8, y - btn.offsetHeight - 8) + 'px';
   }
 
   function hideAnnotateBtn() {
     const btn = document.getElementById('wa-annotate-btn');
     if (btn) btn.style.display = 'none';
-    hideCustomInput(false);
     hideNoteInput(false);
-  }
-
-  function showCustomInput() {
-    const btn = document.getElementById('wa-annotate-btn');
-    const input = document.getElementById('wa-custom-input');
-    if (!btn || !input) return;
-    input.style.left = btn.style.left;
-    input.style.top = btn.style.top;
-    btn.style.display = 'none';
-    input.style.display = 'flex';
-    const promptEl = document.getElementById('wa-custom-prompt');
-    if (promptEl) { promptEl.value = ''; promptEl.focus(); }
-  }
-
-  function hideCustomInput(restoreBtn = true) {
-    const input = document.getElementById('wa-custom-input');
-    if (input) input.style.display = 'none';
-    if (restoreBtn) {
-      const btn = document.getElementById('wa-annotate-btn');
-      if (btn && pendingRange) btn.style.display = 'flex';
-    }
-  }
-
-  function submitCustomPrompt() {
-    const promptEl = document.getElementById('wa-custom-prompt');
-    const customPrompt = promptEl?.value.trim();
-    if (!customPrompt) { promptEl?.focus(); return; }
-    hideCustomInput(false);
-    annotate(customPrompt);
   }
 
   function showNoteInput() {
@@ -698,8 +937,21 @@
 
   // ── Event listeners ────────────────────────────────────────────────────────
 
+  // True if the event target lies within one of our own floating UI elements
+  // (the action widget or the note input) — used to ignore page mouse events
+  // that land on our own chrome.
+  function isInsideOwnUI(target) {
+    return ['wa-annotate-btn', 'wa-note-input']
+      .some(id => document.getElementById(id)?.contains(target));
+  }
+
   document.addEventListener('mouseup', e => {
     if (!extensionEnabled) return;
+
+    // Ignore mouseups on our own widget/inputs: they aren't new selections, and
+    // re-running showAnnotateBtn here would reposition the widget out from under
+    // the cursor and swallow the click. (mousedown guards the same way.)
+    if (isInsideOwnUI(e.target)) return;
 
     const sel = window.getSelection();
     const text = sel?.toString().trim();
@@ -721,13 +973,7 @@
   });
 
   document.addEventListener('mousedown', e => {
-    const btn = document.getElementById('wa-annotate-btn');
-    const customInput = document.getElementById('wa-custom-input');
-    const noteInput = document.getElementById('wa-note-input');
-    const insideBtn = btn?.contains(e.target);
-    const insideInput = customInput?.contains(e.target);
-    const insideNote = noteInput?.contains(e.target);
-    if (!insideBtn && !insideInput && !insideNote) {
+    if (!isInsideOwnUI(e.target)) {
       hideAnnotateBtn();
       pendingRange = null;
     }
@@ -792,6 +1038,7 @@
       type: 'explain',
       explanation: response.explanation,
       sources: response.sources || [],
+      cost: response.cost,
       selectedText,
       customPrompt
     };
@@ -858,6 +1105,7 @@
       type: 'cite',
       claim: response.claim,
       citations: response.citations,
+      cost: response.cost,
       selectedText,
       ...(response.verdict ? { verdict: response.verdict } : {})
     };
@@ -907,6 +1155,77 @@
     chrome.runtime.sendMessage({
       type: 'SAVE_ANNOTATION',
       payload: { url: window.location.href, annotation }
+    }).catch(() => {});
+  }
+
+  // ── Note editing ─────────────────────────────────────────────────────────────
+
+  // Swap a note card's rendered body for an inline textarea editor.
+  function startNoteEdit(id) {
+    const card = document.querySelector(`.wa-card[data-annotation-id="${id}"]`);
+    const annotation = annotations.get(id);
+    if (!card || annotation?.type !== 'note') return;
+    const body = card.querySelector('.wa-note-body');
+    if (!body || card.querySelector('.wa-note-edit')) return; // already editing
+
+    card.classList.add('wa-editing');
+
+    const editor = document.createElement('div');
+    editor.className = 'wa-note-edit';
+    editor.addEventListener('click', e => e.stopPropagation()); // don't trigger scroll-to-highlight
+
+    const ta = document.createElement('textarea');
+    ta.className = 'wa-note-textarea';
+    ta.value = annotation.noteText;
+    ta.rows = Math.min(12, Math.max(3, annotation.noteText.split('\n').length + 1));
+    ta.spellcheck = false;
+
+    const actions = document.createElement('div');
+    actions.className = 'wa-note-edit-actions';
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'wa-note-save';
+    saveBtn.textContent = 'Save';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'wa-note-cancel';
+    cancelBtn.textContent = 'Cancel';
+    actions.append(saveBtn, cancelBtn);
+
+    editor.append(ta, actions);
+    body.replaceWith(editor);
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+
+    saveBtn.addEventListener('click', e => { e.stopPropagation(); commitNoteEdit(id, ta.value); });
+    cancelBtn.addEventListener('click', e => { e.stopPropagation(); finishNoteEdit(id); }); // discard edits
+    ta.addEventListener('keydown', e => {
+      e.stopPropagation(); // keep page/global keys from firing while typing
+      if (e.key === 'Escape') { e.preventDefault(); finishNoteEdit(id); }
+      else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commitNoteEdit(id, ta.value); }
+    });
+  }
+
+  // Replace the editor with a freshly rendered note body and exit edit mode.
+  // Re-reads from the map, so it doubles as "discard edits" (Cancel/Esc).
+  function finishNoteEdit(id) {
+    const card = document.querySelector(`.wa-card[data-annotation-id="${id}"]`);
+    const annotation = annotations.get(id);
+    if (!card || !annotation) return;
+    card.querySelector('.wa-note-edit')?.replaceWith(renderNoteBodyEl(annotation));
+    card.classList.remove('wa-editing');
+  }
+
+  function commitNoteEdit(id, rawText) {
+    const annotation = annotations.get(id);
+    if (!annotation) return;
+    const newText = rawText.trim();
+    if (!newText || newText === annotation.noteText) { finishNoteEdit(id); return; }
+
+    annotation.noteText = newText;
+    finishNoteEdit(id);
+
+    chrome.runtime.sendMessage({
+      type: 'UPDATE_ANNOTATION',
+      payload: { url: window.location.href, id, changes: { noteText: newText } }
     }).catch(() => {});
   }
 
@@ -962,7 +1281,8 @@
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === 'GET_STATS') {
-      sendResponse({ count: annotations.size });
+      const { usd, tokens } = computePageCost();
+      sendResponse({ count: annotations.size, totalCost: usd, totalTokens: tokens });
       return false;
     }
     if (msg.type === 'UPDATE_SETTINGS') {
@@ -988,11 +1308,13 @@
 
   injectUI();
 
-  chrome.storage.sync.get(['extensionEnabled', 'sidebarEnabled', 'tooltipEnabled'], result => {
+  chrome.storage.sync.get(['extensionEnabled', 'sidebarEnabled', 'tooltipEnabled', 'actionConfig', 'customPrompts'], result => {
     applySettings({
       extensionEnabled: result.extensionEnabled ?? true,
       sidebarEnabled: result.sidebarEnabled ?? true,
-      tooltipEnabled: result.tooltipEnabled ?? true
+      tooltipEnabled: result.tooltipEnabled ?? true,
+      actionConfig: normalizeActionConfig(result.actionConfig),
+      customPrompts: normalizeCustomPrompts(result.customPrompts)
     });
   });
 
