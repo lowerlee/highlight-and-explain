@@ -1,8 +1,8 @@
 'use strict';
 
-const apiKeyInput = document.getElementById('api-key');
-const saveBtn = document.getElementById('save-btn');
-const saveStatus = document.getElementById('save-status');
+const providerSelect = document.getElementById('provider-select');
+const modelSelect = document.getElementById('model-select');
+const apiKeysEl = document.getElementById('api-keys');
 const annotationCount = document.getElementById('annotation-count');
 const pageCost = document.getElementById('page-cost');
 const clearBtn = document.getElementById('clear-btn');
@@ -10,15 +10,124 @@ const clearStatus = document.getElementById('clear-status');
 const enabledToggle = document.getElementById('enabled-toggle');
 const sidebarToggle = document.getElementById('sidebar-toggle');
 const tooltipToggle = document.getElementById('tooltip-toggle');
+const debugToggle = document.getElementById('debug-toggle');
+const exportLogBtn = document.getElementById('export-log-btn');
+const clearLogBtn = document.getElementById('clear-log-btn');
+const logStatus = document.getElementById('log-status');
 const actionsConfigEl = document.getElementById('actions-config');
 const customPromptsEl = document.getElementById('custom-prompts');
 const addPromptBtn = document.getElementById('add-prompt-btn');
 
-// ── Load saved API key ───────────────────────────────────────────────────────
+// ── Model provider + API keys ────────────────────────────────────────────────
 
-chrome.storage.sync.get('geminiApiKey', ({ geminiApiKey }) => {
-  if (geminiApiKey) apiKeyInput.value = geminiApiKey;
+// Provider/model metadata comes from the background script (single source of
+// truth) so the popup never duplicates the model list or pricing.
+let providers = [];
+let selection = { provider: null, model: null };
+
+chrome.runtime.sendMessage({ type: 'GET_PROVIDERS' }, resp => {
+  providers = resp?.providers || [];
+  const keyNames = providers.map(p => p.keyName);
+  chrome.storage.sync.get([...keyNames, 'selectedProvider', 'selectedModel'], stored => {
+    const valid = providers.find(p => p.id === stored.selectedProvider) || providers[0];
+    selection.provider = valid?.id || null;
+    const models = valid?.models || [];
+    selection.model = models.some(m => m.id === stored.selectedModel) ? stored.selectedModel : models[0]?.id || null;
+    renderProviderSelect();
+    renderModelSelect();
+    renderApiKeys(stored);
+  });
 });
+
+function renderProviderSelect() {
+  providerSelect.innerHTML = '';
+  for (const p of providers) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.label;
+    providerSelect.appendChild(opt);
+  }
+  providerSelect.value = selection.provider;
+}
+
+function renderModelSelect() {
+  const provider = providers.find(p => p.id === selection.provider);
+  modelSelect.innerHTML = '';
+  for (const m of provider?.models || []) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.label;
+    modelSelect.appendChild(opt);
+  }
+  modelSelect.value = selection.model;
+}
+
+providerSelect.addEventListener('change', () => {
+  selection.provider = providerSelect.value;
+  const provider = providers.find(p => p.id === selection.provider);
+  selection.model = provider?.models[0]?.id || null;
+  renderModelSelect();
+  chrome.storage.sync.set({ selectedProvider: selection.provider, selectedModel: selection.model });
+});
+
+modelSelect.addEventListener('change', () => {
+  selection.model = modelSelect.value;
+  chrome.storage.sync.set({ selectedModel: selection.model });
+});
+
+// One key input + Save button per provider.
+function renderApiKeys(stored) {
+  apiKeysEl.innerHTML = '';
+  for (const p of providers) {
+    const row = document.createElement('div');
+    row.className = 'key-row';
+
+    const label = document.createElement('label');
+    label.className = 'key-label';
+    label.textContent = p.label;
+
+    const inputRow = document.createElement('div');
+    inputRow.className = 'input-row';
+
+    const input = document.createElement('input');
+    input.type = 'password';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.placeholder = `${p.label} key`;
+    input.value = stored[p.keyName] || '';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.textContent = 'Save';
+
+    const status = document.createElement('p');
+    status.className = 'status-msg';
+
+    const save = () => {
+      const key = input.value.trim();
+      chrome.storage.sync.set({ [p.keyName]: key }, () => {
+        showStatus(status, key ? 'Saved!' : 'Key cleared.', false);
+      });
+    };
+    saveBtn.addEventListener('click', save);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
+
+    inputRow.append(input, saveBtn);
+
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    if (p.keyHelp) {
+      const a = document.createElement('a');
+      a.href = p.keyHelp.url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = p.keyHelp.text;
+      hint.append('Get a key at ', a);
+    }
+
+    row.append(label, inputRow, status, hint);
+    apiKeysEl.appendChild(row);
+  }
+}
 
 // ── Load display settings ────────────────────────────────────────────────────
 
@@ -74,19 +183,6 @@ function fmtUsd(usd) {
   // Sub-cent costs need more precision to be meaningful.
   return usd < 0.01 ? '$' + usd.toFixed(4) : '$' + usd.toFixed(2);
 }
-
-// ── Save API key ─────────────────────────────────────────────────────────────
-
-saveBtn.addEventListener('click', () => {
-  const key = apiKeyInput.value.trim();
-  chrome.storage.sync.set({ geminiApiKey: key }, () => {
-    showStatus(saveStatus, key ? 'Saved!' : 'Key cleared.', false);
-  });
-});
-
-apiKeyInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') saveBtn.click();
-});
 
 // ── Clear annotations ────────────────────────────────────────────────────────
 
@@ -144,6 +240,43 @@ function onSubToggleChange() {
 sidebarToggle.addEventListener('change', onSubToggleChange);
 tooltipToggle.addEventListener('change', onSubToggleChange);
 
+// ── Developer logging toggle ─────────────────────────────────────────────────
+// Independent of the display toggles: just persists the flag the background
+// reads. No content-script involvement.
+chrome.storage.sync.get('debugLogging', ({ debugLogging }) => {
+  debugToggle.checked = !!debugLogging;
+});
+debugToggle.addEventListener('change', () => {
+  chrome.storage.sync.set({ debugLogging: debugToggle.checked });
+});
+
+// Export the captured debug buffer to Downloads/wa-debug-log.txt. The background
+// returns the text; the popup builds the Blob and triggers the download (a
+// service worker can't create a downloadable URL). overwrite keeps a stable path.
+exportLogBtn.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'EXPORT_DEBUG_LOG' }, resp => {
+    if (chrome.runtime.lastError || !resp?.ok) {
+      showStatus(logStatus, chrome.runtime.lastError?.message || resp?.error || 'Export failed.', true);
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([resp.text], { type: 'text/plain;charset=utf-8' }));
+    chrome.downloads.download(
+      { url, filename: 'wa-debug-log.txt', conflictAction: 'overwrite', saveAs: false },
+      () => {
+        URL.revokeObjectURL(url);
+        if (chrome.runtime.lastError) showStatus(logStatus, chrome.runtime.lastError.message, true);
+        else showStatus(logStatus, `Saved ${resp.lines} lines to Downloads/wa-debug-log.txt`, false);
+      }
+    );
+  });
+});
+
+clearLogBtn.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'CLEAR_DEBUG_LOG' }, () => {
+    showStatus(logStatus, 'Logs cleared.', false);
+  });
+});
+
 // ── Selection-widget configuration ───────────────────────────────────────────
 
 // Keep ACTION_META and DEFAULT_ACTION_ORDER in sync with content.js (no shared
@@ -151,9 +284,10 @@ tooltipToggle.addEventListener('change', onSubToggleChange);
 const ACTION_META = {
   explain: { icon: '✦', label: 'Explain' },
   cite:    { icon: '⚖', label: 'Cite' },
-  note:    { icon: '✏', label: 'Note' }
+  note:    { icon: '✏', label: 'Note' },
+  ask:     { icon: '?', label: 'Ask' }
 };
-const DEFAULT_ACTION_ORDER = ['explain', 'cite', 'note'];
+const DEFAULT_ACTION_ORDER = ['explain', 'cite', 'note', 'ask'];
 
 function normalizeActionConfig(stored) {
   const result = [];

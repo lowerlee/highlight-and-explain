@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "AI Web Annotator",
   "version": "1.0.0",
-  "description": "Highlight text on any page and get AI-powered explanations via Gemini.",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "description": "Highlight text on any page and get AI-powered explanations from Gemini, Claude, or GPT.",
+  "permissions": ["storage", "activeTab", "scripting", "downloads"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"

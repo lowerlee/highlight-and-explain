@@ -80,7 +80,10 @@
 
 /* ── Note input ──────────────────────────────────────────────────────────── */
 
-#wa-note-input {
+/* Inline text inputs: note (teal accent) and ask (purple "custom" accent).
+   Shared layout; only the accent color differs per input. */
+#wa-note-input,
+#wa-ask-input {
   display: none; /* shown as flex via JS */
   position: fixed !important;
   z-index: 2147483647 !important;
@@ -96,7 +99,12 @@
   pointer-events: auto !important;
 }
 
-#wa-note-text {
+#wa-ask-input {
+  border-color: #5b4ae8 !important;
+}
+
+#wa-note-text,
+#wa-ask-text {
   flex: 1 !important;
   border: none !important;
   outline: none !important;
@@ -107,8 +115,8 @@
   padding: 2px 4px !important;
 }
 
-#wa-note-submit {
-  background: #1a7a6e !important;
+#wa-note-submit,
+#wa-ask-submit {
   color: #fff !important;
   border: none !important;
   border-radius: 5px !important;
@@ -119,9 +127,10 @@
   transition: background 0.15s !important;
 }
 
-#wa-note-submit:hover {
-  background: #145f56 !important;
-}
+#wa-note-submit { background: #1a7a6e !important; }
+#wa-note-submit:hover { background: #145f56 !important; }
+#wa-ask-submit { background: #5b4ae8 !important; }
+#wa-ask-submit:hover { background: #4a3bd4 !important; }
 
 /* ── Highlights ──────────────────────────────────────────────────────────── */
 
@@ -390,12 +399,41 @@ mark.wa-note-highlight.wa-active {
   word-break: break-word !important;
 }
 
+/* Explain/cite cards float the regenerate/delete buttons over the header's
+   top-right corner. Reserve room there so a long, wrapping header doesn't run
+   under them. Note cards keep their actions in a separate row, so exclude them. */
+.wa-card:not(.wa-note-card) .wa-quote {
+  padding-right: 54px !important;
+}
+
 .wa-explanation {
   font-size: 13px !important;
   color: #333 !important;
   margin: 0 0 4px 0 !important;
   line-height: 1.6 !important;
   word-break: break-word !important;
+}
+
+/* Inline scientific-style citation: superscript reference number(s) that link
+   to the matching entry in the numbered source list below the explanation. */
+.wa-cite-sup {
+  font-size: 9px !important;
+  line-height: 0 !important;
+  vertical-align: super !important;
+  margin-left: 1px !important;
+  white-space: nowrap !important;
+}
+
+.wa-cite-sup a,
+.wa-cite-sup span {
+  color: #5b4ae8 !important;
+  font-weight: 700 !important;
+  text-decoration: none !important;
+  padding: 0 1px !important;
+}
+
+.wa-cite-sup a:hover {
+  text-decoration: underline !important;
 }
 
 .wa-sources {
@@ -426,6 +464,21 @@ mark.wa-note-highlight.wa-active {
   text-decoration: none !important;
 }
 
+/* Reference number badge prefixing each source pill, matching the inline
+   superscripts so readers can map a citation to its source. */
+.wa-source-num {
+  display: inline-block !important;
+  min-width: 13px !important;
+  margin-right: 4px !important;
+  padding: 0 3px !important;
+  border-radius: 7px !important;
+  background: rgba(91, 74, 232, 0.18) !important;
+  color: #3d2f8f !important;
+  font-weight: 700 !important;
+  font-size: 10px !important;
+  text-align: center !important;
+}
+
 .wa-custom-tag {
   font-size: 11px !important;
   color: #3d2f8f !important;
@@ -439,15 +492,43 @@ mark.wa-note-highlight.wa-active {
   white-space: nowrap !important;
 }
 
-.wa-orphan-note {
+/* .wa-orphan-note: persistent "text not found on page" notice.
+   .wa-regen-error: transient regenerate-failure notice (auto-removed). */
+.wa-orphan-note,
+.wa-regen-error {
   font-size: 11px !important;
   color: #e07c00 !important;
   margin: 6px 0 0 0 !important;
 }
 
+/* Grounding badge: tells the user whether an explanation used a live web
+   search (green) or came from the model's own knowledge (amber). */
+.wa-ground {
+  display: inline-block !important;
+  margin: 8px 0 0 0 !important;
+  padding: 2px 8px !important;
+  border-radius: 10px !important;
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  white-space: nowrap !important;
+}
+
+.wa-ground-yes {
+  color: #1a7a4a !important;
+  background: rgba(26, 122, 74, 0.1) !important;
+  border: 1px solid rgba(26, 122, 74, 0.25) !important;
+}
+
+.wa-ground-no {
+  color: #b06a00 !important;
+  background: rgba(224, 124, 0, 0.1) !important;
+  border: 1px solid rgba(224, 124, 0, 0.3) !important;
+}
+
 .wa-cost {
   display: flex !important;
   align-items: center !important;
+  flex-wrap: wrap !important;
   gap: 5px !important;
   margin: 8px 0 0 0 !important;
   padding-top: 7px !important;
@@ -466,11 +547,17 @@ mark.wa-note-highlight.wa-active {
   opacity: 0.5 !important;
 }
 
+.wa-cost-model {
+  font-weight: 600 !important;
+  color: #6a6a8a !important;
+}
+
 .wa-error-icon {
   color: #d9534f !important;
 }
 
-.wa-delete-btn {
+.wa-delete-btn,
+.wa-redo-btn {
   background: none !important;
   border: none !important;
   color: #ccc !important;
@@ -483,21 +570,31 @@ mark.wa-note-highlight.wa-active {
   display: none !important;
 }
 
-/* Explain/cite cards float the delete button over the top-right corner; note
-   cards place it in the header row instead (see .wa-note-actions). */
-.wa-card:not(.wa-note-card) .wa-delete-btn {
+/* Explain/cite cards float their action buttons (regenerate + delete) over the
+   top-right corner; note cards place them in the header row instead (see
+   .wa-note-actions). Positioned to sit in the header bar's right whitespace. */
+.wa-card:not(.wa-note-card) .wa-card-actions {
   position: absolute !important;
-  top: 8px !important;
-  right: 8px !important;
+  top: 14px !important;
+  right: 12px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 2px !important;
 }
 
-.wa-card:hover .wa-delete-btn {
+.wa-card:hover .wa-delete-btn,
+.wa-card:hover .wa-redo-btn {
   display: block !important;
 }
 
 .wa-delete-btn:hover {
   color: #d9534f !important;
   background: #fdecea !important;
+}
+
+.wa-redo-btn:hover {
+  color: #5b4ae8 !important;
+  background: rgba(91, 74, 232, 0.1) !important;
 }
 
 /* ── Citation cards (Cite annotations) ───────────────────────────────────── */

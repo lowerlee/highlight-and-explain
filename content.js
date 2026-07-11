@@ -27,9 +27,12 @@
   const BUILTIN_DEFS = {
     explain: { icon: '✦', label: 'Explain', run: () => annotate() },
     cite:    { icon: '⚖', label: 'Cite',    run: () => annotateCite() },
-    note:    { icon: '✏', label: 'Note',    run: () => showNoteInput() }
+    note:    { icon: '✏', label: 'Note',    run: () => showNoteInput() },
+    // Ad-hoc prompt: type a one-off question and run Explain with it. Shares the
+    // 'custom' accent with saved custom prompts since it's the same kind of call.
+    ask:     { icon: '?', label: 'Ask', colorKey: 'custom', run: () => showAskInput() }
   };
-  const DEFAULT_ACTION_ORDER = ['explain', 'cite', 'note'];
+  const DEFAULT_ACTION_ORDER = ['explain', 'cite', 'note', 'ask'];
   // Color classes (wa-action-<key>) the carousel applies to the widget; custom
   // prompts share the 'custom' accent.
   const ACTION_COLOR_KEYS = ['explain', 'cite', 'note', 'custom'];
@@ -286,6 +289,24 @@
       if (e.key === 'Escape') { e.stopPropagation(); hideNoteInput(); }
     });
 
+    // Ask input (ad-hoc custom prompt) — same structure as the note input.
+    const askInput = document.createElement('div');
+    askInput.id = 'wa-ask-input';
+    askInput.innerHTML = `
+      <input type="text" id="wa-ask-text" placeholder="Ask anything about the selection…" autocomplete="off" spellcheck="false">
+      <button id="wa-ask-submit" title="Ask (Enter)">↵</button>
+    `;
+    document.body.appendChild(askInput);
+
+    document.getElementById('wa-ask-submit').addEventListener('click', e => {
+      e.stopPropagation();
+      submitAsk();
+    });
+    document.getElementById('wa-ask-text').addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.stopPropagation(); submitAsk(); }
+      if (e.key === 'Escape') { e.stopPropagation(); hideAskInput(); }
+    });
+
     // Sidebar
     const sidebar = document.createElement('div');
     sidebar.id = 'wa-sidebar';
@@ -300,7 +321,7 @@
         <div id="wa-sidebar-header">
           <div class="wa-header-titles">
             <span id="wa-sidebar-title">Annotations</span>
-            <span id="wa-cost-total" class="wa-cost-total" title="Estimated Gemini usage for this page"></span>
+            <span id="wa-cost-total" class="wa-cost-total" title="Estimated AI usage for this page"></span>
           </div>
           <button id="wa-sidebar-close" title="Close">✕</button>
         </div>
@@ -564,12 +585,16 @@
     return (n || 0).toLocaleString();
   }
 
-  function costHtml(cost) {
+  function costHtml(cost, modelName) {
     if (!cost || !cost.totalTokens) return '';
     const detail = `${fmtTokens(cost.promptTokens)} in + ${fmtTokens(cost.outputTokens)} out`
       + (cost.calls > 1 ? ` · ${cost.calls} model calls` : '')
       + (cost.searchRequests ? ` · ${cost.searchRequests} search${cost.searchRequests > 1 ? 'es' : ''}` : '');
+    const modelSeg = modelName
+      ? `<span class="wa-cost-model">${esc(modelName)}</span><span class="wa-cost-sep">·</span>`
+      : '';
     return `<div class="wa-cost" title="${esc(detail)}">`
+      + modelSeg
       + `<span class="wa-cost-tokens">${fmtTokens(cost.totalTokens)} tokens</span>`
       + `<span class="wa-cost-sep">·</span>`
       + `<span class="wa-cost-usd">${fmtUsd(cost.usd)}</span></div>`;
@@ -590,13 +615,65 @@
     el.textContent = tokens > 0 ? `${fmtTokens(tokens)} tokens · ${fmtUsd(usd)}` : '';
   }
 
+  function hostnameOf(uri) {
+    try { return new URL(uri).hostname.replace(/^www\./, ''); } catch { return uri; }
+  }
+
+  // Numbered reference list shown beneath an explanation. The numbers line up
+  // with the inline superscripts produced by explanationHtml().
   function sourcesHtml(sources) {
     if (!sources?.length) return '';
-    const links = sources.map(s => {
-      const label = s.title || new URL(s.uri).hostname;
-      return `<a class="wa-source-link" href="${esc(s.uri)}" target="_blank" rel="noopener" title="${esc(s.uri)}">${esc(label)}</a>`;
+    const links = sources.map((s, i) => {
+      const label = s.title || hostnameOf(s.uri);
+      const safe = mdSafeUrl(s.uri);
+      const inner = `<span class="wa-source-num">${i + 1}</span>${esc(label)}`;
+      return safe
+        ? `<a class="wa-source-link" href="${esc(safe)}" target="_blank" rel="noopener" title="${esc(s.uri)}">${inner}</a>`
+        : `<span class="wa-source-link" title="${esc(s.uri)}">${inner}</span>`;
     }).join('');
     return `<div class="wa-sources">${links}</div>`;
+  }
+
+  // Small badge telling the user whether an explanation was grounded in a live
+  // web search (with sources) or answered from the model's own knowledge — so
+  // they can gauge hallucination risk at a glance. Explain cards only.
+  function groundingBadge(annotation) {
+    if (annotation.type !== 'explain') return '';
+    // Fall back to "has sources" for annotations saved before `grounded` existed.
+    const grounded = annotation.grounded ?? (annotation.sources?.length > 0);
+    return grounded
+      ? '<span class="wa-ground wa-ground-yes" title="The model ran a web search and grounded this answer in the sources below.">🔍 Web-grounded</span>'
+      : '<span class="wa-ground wa-ground-no" title="No web search was performed — this answer comes from the model\'s own knowledge and may be less reliable.">⚠ From model knowledge</span>';
+  }
+
+  // Render explanation prose with inline superscript citations. `marks` is the
+  // backend's list of { index, sources:[chunkIndex,...] } (from Gemini grounding
+  // supports); each superscript number links to the matching numbered source.
+  function explanationHtml(text, marks, sources) {
+    text = text || '';
+    if (!marks?.length || !sources?.length) return esc(text);
+    const valid = marks
+      .filter(m => Number.isInteger(m.index) && m.index >= 0 && m.index <= text.length)
+      .sort((a, b) => a.index - b.index);
+    let html = '';
+    let last = 0;
+    for (const m of valid) {
+      html += esc(text.slice(last, m.index));
+      const refs = (m.sources || [])
+        .filter(i => sources[i])
+        .map(i => {
+          const s = sources[i];
+          const safe = mdSafeUrl(s.uri);
+          const title = esc(s.title || s.uri);
+          return safe
+            ? `<a href="${esc(safe)}" target="_blank" rel="noopener" title="${title}">${i + 1}</a>`
+            : `<span title="${title}">${i + 1}</span>`;
+        });
+      if (refs.length) html += `<sup class="wa-cite-sup">${refs.join(',')}</sup>`;
+      last = m.index;
+    }
+    html += esc(text.slice(last));
+    return html;
   }
 
   const STANCE_ORDER = ['supporting', 'contradicting', 'contextualizing'];
@@ -625,12 +702,15 @@
       const items = grouped[stance];
       if (!items.length) return '';
       const rows = items.map(c => {
-        const hostname = (() => { try { return new URL(c.uri).hostname; } catch { return ''; } })();
-        const title = c.title || hostname || 'Untitled';
+        const title = c.title || hostnameOf(c.uri) || 'Untitled';
         const badgeLabel = SOURCE_TYPE_LABELS[c.sourceType] || 'Other';
+        const safe = mdSafeUrl(c.uri);
+        const link = safe
+          ? `<a class="wa-cite-link" href="${esc(safe)}" target="_blank" rel="noopener" title="${esc(c.uri)}">${esc(title)}</a>`
+          : `<span class="wa-cite-link" title="${esc(c.uri)}">${esc(title)}</span>`;
         return `
           <div class="wa-cite-row">
-            <a class="wa-cite-link" href="${esc(c.uri)}" target="_blank" rel="noopener" title="${esc(c.uri)}">${esc(title)}</a>
+            ${link}
             <span class="wa-source-badge wa-badge-${esc(c.sourceType || 'other')}">${esc(badgeLabel)}</span>
             <p class="wa-cite-rationale">${esc(c.rationale || '')}</p>
           </div>
@@ -657,7 +737,61 @@
     return parts.join(' · ') || 'No citations';
   }
 
-  function addAnnotationCard(annotation, { orphaned = false, loading = false } = {}) {
+  // Map an EXPLAIN/CITE response to the annotation fields it populates. Shared
+  // by the create flow and regenerate so the two can't drift. citeFields always
+  // sets `verdict` (to '' when absent) so a regenerate can clear a stale verdict
+  // through UPDATE_ANNOTATION's shallow merge; '' is falsy, so it renders as no
+  // verdict everywhere `annotation.verdict` is checked.
+  function explainFields(r) {
+    return {
+      explanation: r.explanation,
+      sources: r.sources || [],
+      citationMarks: r.citationMarks || [],
+      cost: r.cost,
+      grounded: !!r.grounded,
+      modelName: r.modelName || ''
+    };
+  }
+
+  function citeFields(r) {
+    return {
+      claim: r.claim,
+      citations: r.citations,
+      cost: r.cost,
+      verdict: r.verdict || '',
+      modelName: r.modelName || ''
+    };
+  }
+
+  // Redo + delete controls for AI-generated (explain/cite) cards, floated over
+  // the card's top-right corner. Note cards use their own header-row actions.
+  function appendCardActions(card, annotation) {
+    const actions = document.createElement('div');
+    actions.className = 'wa-card-actions';
+
+    const redoBtn = document.createElement('button');
+    redoBtn.className = 'wa-redo-btn';
+    redoBtn.title = 'Regenerate annotation';
+    redoBtn.textContent = '↻';
+    redoBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      regenerateAnnotation(annotation.id);
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'wa-delete-btn';
+    deleteBtn.title = 'Delete annotation';
+    deleteBtn.textContent = '✕';
+    deleteBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      deleteAnnotation(annotation.id);
+    });
+
+    actions.append(redoBtn, deleteBtn);
+    card.appendChild(actions);
+  }
+
+  function addAnnotationCard(annotation, { orphaned = false, loading = false, replaceCard = null } = {}) {
     const list = document.getElementById('wa-annotations-list');
     if (!list) return null;
 
@@ -691,7 +825,7 @@
         ${orphaned ? '<p class="wa-orphan-note">⚠ Text not found on this page</p>' : ''}
       `;
     } else {
-      const loadingText = isCite ? 'Searching and classifying sources…' : 'Analyzing with Gemini…';
+      const loadingText = isCite ? 'Searching and classifying sources…' : 'Analyzing…';
       const verdictHtml = isCite && annotation.verdict
         ? `<p class="wa-verdict">${esc(annotation.verdict)}</p>`
         : '';
@@ -699,27 +833,30 @@
         ? `<p class="wa-explanation"><span class="wa-spinner"></span><span class="wa-loading-text">${loadingText}</span></p>`
         : (isCite
             ? `${verdictHtml}<div class="wa-citations">${citationsHtml(annotation.citations)}</div>`
-            : `<p class="wa-explanation">${esc(annotation.explanation)}</p>${sourcesHtml(annotation.sources)}`);
+            : `<p class="wa-explanation">${explanationHtml(annotation.explanation, annotation.citationMarks, annotation.sources)}</p>${sourcesHtml(annotation.sources)}${groundingBadge(annotation)}`);
 
       card.innerHTML = `
         <blockquote class="wa-quote">${esc(quote)}</blockquote>
         ${annotation.customPrompt ? `<p class="wa-custom-tag">✎ ${esc(annotation.customPrompt)}</p>` : ''}
         ${bodyHtml}
-        ${!loading ? costHtml(annotation.cost) : ''}
+        ${!loading ? costHtml(annotation.cost, annotation.modelName) : ''}
         ${orphaned ? '<p class="wa-orphan-note">⚠ Text not found on this page</p>' : ''}
-        ${!loading ? '<button class="wa-delete-btn" title="Delete annotation">✕</button>' : ''}
       `;
     }
 
     if (!loading) {
-      card.querySelector('.wa-delete-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        deleteAnnotation(annotation.id);
-      });
-      card.querySelector('.wa-edit-btn')?.addEventListener('click', e => {
-        e.stopPropagation();
-        startNoteEdit(annotation.id);
-      });
+      if (isNote) {
+        card.querySelector('.wa-delete-btn').addEventListener('click', e => {
+          e.stopPropagation();
+          deleteAnnotation(annotation.id);
+        });
+        card.querySelector('.wa-edit-btn')?.addEventListener('click', e => {
+          e.stopPropagation();
+          startNoteEdit(annotation.id);
+        });
+      } else {
+        appendCardActions(card, annotation);
+      }
       // Don't intercept clicks on citation links — let them open normally.
       card.addEventListener('click', e => {
         if (e.target.closest('a')) return;
@@ -727,7 +864,8 @@
       });
     }
 
-    list.prepend(card);
+    if (replaceCard) replaceCard.replaceWith(card);
+    else list.prepend(card);
     return card;
   }
 
@@ -760,7 +898,7 @@
       }
     } else {
       const explanationEl = card.querySelector('.wa-explanation');
-      if (explanationEl) explanationEl.textContent = annotation.explanation;
+      if (explanationEl) explanationEl.innerHTML = explanationHtml(annotation.explanation, annotation.citationMarks, annotation.sources);
 
       if (annotation.customPrompt) {
         const tag = card.querySelector('.wa-custom-tag');
@@ -778,24 +916,23 @@
         srcEl.innerHTML = srcs;
         explanationEl?.insertAdjacentElement('afterend', srcEl.firstElementChild);
       }
+
+      const badge = groundingBadge(annotation);
+      if (badge) {
+        const b = document.createElement('div');
+        b.innerHTML = badge;
+        card.appendChild(b.firstElementChild);
+      }
     }
 
-    const costMarkup = costHtml(annotation.cost);
+    const costMarkup = costHtml(annotation.cost, annotation.modelName);
     if (costMarkup) {
       const wrap = document.createElement('div');
       wrap.innerHTML = costMarkup;
       card.appendChild(wrap.firstElementChild);
     }
 
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'wa-delete-btn';
-    deleteBtn.title = 'Delete annotation';
-    deleteBtn.textContent = '✕';
-    deleteBtn.addEventListener('click', e => {
-      e.stopPropagation();
-      deleteAnnotation(annotation.id);
-    });
-    card.appendChild(deleteBtn);
+    appendCardActions(card, annotation);
 
     card.addEventListener('click', e => {
       if (e.target.closest('a')) return;
@@ -810,12 +947,15 @@
     const el = card.querySelector('.wa-explanation');
     if (el) el.innerHTML = `<span class="wa-error-icon">⚠</span> ${esc(msg)}`;
 
+    const actions = document.createElement('div');
+    actions.className = 'wa-card-actions';
     const dismissBtn = document.createElement('button');
     dismissBtn.className = 'wa-delete-btn';
     dismissBtn.title = 'Dismiss';
     dismissBtn.textContent = '✕';
-    dismissBtn.addEventListener('click', () => card.remove());
-    card.appendChild(dismissBtn);
+    dismissBtn.addEventListener('click', e => { e.stopPropagation(); card.remove(); });
+    actions.appendChild(dismissBtn);
+    card.appendChild(actions);
   }
 
   // ── Scroll helpers ─────────────────────────────────────────────────────────
@@ -904,28 +1044,39 @@
     const btn = document.getElementById('wa-annotate-btn');
     if (btn) btn.style.display = 'none';
     hideNoteInput(false);
+    hideAskInput(false);
   }
 
-  function showNoteInput() {
+  // Shared show/hide for the inline text inputs (note + ask): position over the
+  // wheel's spot, hide the wheel, reveal the input, focus it.
+  function showInlineInput(inputId, textId) {
     const btn = document.getElementById('wa-annotate-btn');
-    const input = document.getElementById('wa-note-input');
+    const input = document.getElementById(inputId);
     if (!btn || !input) return;
-    input.style.left = btn.style.left;
     input.style.top = btn.style.top;
     btn.style.display = 'none';
     input.style.display = 'flex';
-    const textEl = document.getElementById('wa-note-text');
+    // The input is wider than the wheel, so copying the wheel's left verbatim can
+    // overflow the right edge near the viewport edge — clamp it (matches the
+    // wheel's own clamping in showAnnotateBtn).
+    const iw = input.offsetWidth || 300;
+    const left = parseInt(btn.style.left, 10) || 0;
+    input.style.left = Math.max(8, Math.min(left, window.innerWidth - iw - 8)) + 'px';
+    const textEl = document.getElementById(textId);
     if (textEl) { textEl.value = ''; textEl.focus(); }
   }
 
-  function hideNoteInput(restoreBtn = true) {
-    const input = document.getElementById('wa-note-input');
+  function hideInlineInput(inputId, restoreBtn = true) {
+    const input = document.getElementById(inputId);
     if (input) input.style.display = 'none';
     if (restoreBtn) {
       const btn = document.getElementById('wa-annotate-btn');
       if (btn && pendingRange) btn.style.display = 'flex';
     }
   }
+
+  function showNoteInput() { showInlineInput('wa-note-input', 'wa-note-text'); }
+  function hideNoteInput(restoreBtn = true) { hideInlineInput('wa-note-input', restoreBtn); }
 
   function submitNote() {
     const textEl = document.getElementById('wa-note-text');
@@ -935,13 +1086,24 @@
     saveNoteAnnotation(noteText);
   }
 
+  function showAskInput() { showInlineInput('wa-ask-input', 'wa-ask-text'); }
+  function hideAskInput(restoreBtn = true) { hideInlineInput('wa-ask-input', restoreBtn); }
+
+  function submitAsk() {
+    const textEl = document.getElementById('wa-ask-text');
+    const prompt = textEl?.value.trim();
+    if (!prompt) { textEl?.focus(); return; }
+    hideAskInput(false);
+    annotate(prompt); // Explain with the user's ad-hoc prompt
+  }
+
   // ── Event listeners ────────────────────────────────────────────────────────
 
   // True if the event target lies within one of our own floating UI elements
   // (the action widget or the note input) — used to ignore page mouse events
   // that land on our own chrome.
   function isInsideOwnUI(target) {
-    return ['wa-annotate-btn', 'wa-note-input']
+    return ['wa-annotate-btn', 'wa-note-input', 'wa-ask-input']
       .some(id => document.getElementById(id)?.contains(target));
   }
 
@@ -1036,9 +1198,7 @@
       createdAt: Date.now(),
       anchor,
       type: 'explain',
-      explanation: response.explanation,
-      sources: response.sources || [],
-      cost: response.cost,
+      ...explainFields(response),
       selectedText,
       customPrompt
     };
@@ -1103,11 +1263,8 @@
       createdAt: Date.now(),
       anchor,
       type: 'cite',
-      claim: response.claim,
-      citations: response.citations,
-      cost: response.cost,
-      selectedText,
-      ...(response.verdict ? { verdict: response.verdict } : {})
+      ...citeFields(response),
+      selectedText
     };
 
     highlightRangeSafe(range, id);
@@ -1227,6 +1384,69 @@
       type: 'UPDATE_ANNOTATION',
       payload: { url: window.location.href, id, changes: { noteText: newText } }
     }).catch(() => {});
+  }
+
+  // Re-run the AI generation for an existing explain/cite annotation, keeping
+  // its id, anchor, and highlight. Rebuilds the card as a fresh loading card in
+  // place, then replaces the content and persists the regenerated fields.
+  async function regenerateAnnotation(id) {
+    const annotation = annotations.get(id);
+    if (!annotation || (annotation.type !== 'explain' && annotation.type !== 'cite')) return;
+
+    const oldCard = document.querySelector(`.wa-card[data-annotation-id="${id}"]`);
+    if (!oldCard || oldCard.classList.contains('wa-loading')) return;
+
+    const isCite = annotation.type === 'cite';
+    // Preserve the "text not found on page" state — regenerate only refreshes
+    // the AI content, it doesn't re-anchor the highlight.
+    const orphaned = oldCard.classList.contains('wa-orphaned');
+    const loadingCard = addAnnotationCard(annotation, { loading: true, replaceCard: oldCard, orphaned });
+
+    const surroundingContext = annotation.anchor
+      ? annotation.anchor.prefix + annotation.selectedText + annotation.anchor.suffix
+      : annotation.selectedText;
+
+    let response;
+    try {
+      response = await chrome.runtime.sendMessage({
+        type: isCite ? 'CITE' : 'EXPLAIN',
+        payload: {
+          selectedText: annotation.selectedText,
+          pageTitle: document.title,
+          surroundingContext,
+          ...(isCite ? {} : { customPrompt: annotation.customPrompt })
+        }
+      });
+    } catch {
+      regenFailed(loadingCard, annotation, 'Extension error — try reloading the page.');
+      return;
+    }
+
+    if (response?.error) {
+      regenFailed(loadingCard, annotation, response.error);
+      return;
+    }
+
+    const changes = isCite ? citeFields(response) : explainFields(response);
+    Object.assign(annotation, changes);
+
+    finalizeCard(loadingCard, annotation);
+    updateTabCount();
+
+    chrome.runtime.sendMessage({
+      type: 'UPDATE_ANNOTATION',
+      payload: { url: window.location.href, id, changes }
+    }).catch(() => {});
+  }
+
+  // Restore a card to its pre-regeneration content and flash a transient notice.
+  function regenFailed(card, annotation, msg) {
+    finalizeCard(card, annotation);
+    const note = document.createElement('p');
+    note.className = 'wa-regen-error';
+    note.textContent = '⚠ ' + msg;
+    card.appendChild(note);
+    setTimeout(() => note.remove(), 5000);
   }
 
   async function deleteAnnotation(id) {
