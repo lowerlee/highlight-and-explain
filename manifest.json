@@ -3,8 +3,13 @@
   "name": "AI Web Annotator",
   "version": "1.0.0",
   "description": "Highlight text on any page and get AI-powered explanations from Gemini, Claude, or GPT.",
-  "permissions": ["storage", "activeTab", "scripting", "downloads"],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkJQGuyo4BN4r0/tPMaQBbUXNtqXuOqqlxQi4ZaEKAxAVZVXZDe++hBqwc9e/oOs39ktaPbRl4XTRdHSCVbshrZ7phmw4kX66ZJByJPdTSYMBoc4j26w4Syix/TGbtHORkcvDYjZ2RyS6UaS5/iMSwJZ7aHzuV6RQWpu1r2H5Wwx7bLn8UgOQ0Xrea5O457VBDMJWdqG175N8Ij4gVSs8YQMWQYcl/471HCaO7IYlqvCdmCzMNWO23Z6xEERnL4s0bjrCCPmDJ48iw/tiCYxYTghaDHN3chCc0VUKEUQm6dw56wLhBIdPQTq+kP2y80wsbFOX1wIGQP/5r1qqPrNrswIDAQAB",
+  "permissions": ["storage", "activeTab", "scripting", "downloads", "identity", "identity.email"],
   "host_permissions": ["<all_urls>"],
+  "oauth2": {
+    "client_id": "307179466030-fg94n9hak9tsrp2ql690lbkl1a1r3649.apps.googleusercontent.com.apps.googleusercontent.com",
+    "scopes": ["https://www.googleapis.com/auth/drive.appdata"]
+  },
   "background": {
     "service_worker": "background.js"
   },

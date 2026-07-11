@@ -44,6 +44,21 @@
     </section>
 
     <section class="section">
+      <label>Sync across devices</label>
+      <p class="hint">Stores annotations in a private app folder in your Google Drive, so every computer connected to the same Google account sees them.</p>
+      <div class="stat-row">
+        <span class="stat-label">Status</span>
+        <span id="sync-state" class="stat-value">—</span>
+      </div>
+      <div class="input-row">
+        <button id="sync-connect-btn" class="btn-secondary">Connect Google Drive</button>
+        <button id="sync-now-btn" class="btn-secondary" hidden>Sync now</button>
+      </div>
+      <p id="sync-last" class="hint"></p>
+      <p id="sync-status" class="status-msg"></p>
+    </section>
+
+    <section class="section">
       <div class="toggle-row">
         <span class="toggle-label">Sidebar</span>
         <label class="toggle-switch" title="Show annotation sidebar">

@@ -1,0 +1,4 @@
+# Private half of the extension signing keypair. The public half is pinned in
+# manifest.json ("key") so every machine loads the extension under the same ID;
+# the .pem is only needed if the extension is ever packed as a .crx.
+extension-key.pem

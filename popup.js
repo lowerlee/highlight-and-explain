@@ -277,6 +277,76 @@ clearLogBtn.addEventListener('click', () => {
   });
 });
 
+// ── Google Drive sync ────────────────────────────────────────────────────────
+// All the work happens in the background (sync.js); the popup just reflects
+// status and forwards connect/disconnect/sync-now clicks.
+
+const syncStateEl = document.getElementById('sync-state');
+const syncConnectBtn = document.getElementById('sync-connect-btn');
+const syncNowBtn = document.getElementById('sync-now-btn');
+const syncLastEl = document.getElementById('sync-last');
+const syncStatusEl = document.getElementById('sync-status');
+
+let driveSyncOn = false;
+
+function fmtAgo(ts) {
+  const mins = Math.round((Date.now() - ts) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+function renderSyncStatus(s) {
+  driveSyncOn = !!s.enabled;
+  syncLastEl.textContent = s.lastSyncAt ? `Last synced ${fmtAgo(s.lastSyncAt)}.` : '';
+  if (!s.configured) {
+    syncStateEl.textContent = 'Setup needed';
+    syncConnectBtn.disabled = true;
+    syncNowBtn.hidden = true;
+    syncLastEl.textContent = 'Needs a one-time OAuth setup — see README → “Cross-device sync”.';
+    return;
+  }
+  syncConnectBtn.disabled = false;
+  if (driveSyncOn) {
+    syncStateEl.textContent = s.email ? `On — ${s.email}` : 'On';
+    syncConnectBtn.textContent = 'Disconnect';
+    syncNowBtn.hidden = false;
+    if (s.lastError) syncLastEl.textContent = s.lastError;
+  } else {
+    syncStateEl.textContent = 'Off';
+    syncConnectBtn.textContent = 'Connect Google Drive';
+    syncNowBtn.hidden = true;
+  }
+}
+
+function refreshSyncStatus() {
+  chrome.runtime.sendMessage({ type: 'SYNC_STATUS' }, s => renderSyncStatus(s || {}));
+}
+refreshSyncStatus();
+
+syncConnectBtn.addEventListener('click', () => {
+  syncConnectBtn.disabled = true;
+  const wasOn = driveSyncOn;
+  chrome.runtime.sendMessage({ type: wasOn ? 'SYNC_DISCONNECT' : 'SYNC_CONNECT' }, resp => {
+    syncConnectBtn.disabled = false;
+    if (resp?.ok) showStatus(syncStatusEl, wasOn ? 'Sync disconnected.' : 'Connected — annotations synced.', false);
+    else showStatus(syncStatusEl, resp?.error || 'Something went wrong.', true);
+    refreshSyncStatus();
+  });
+});
+
+syncNowBtn.addEventListener('click', () => {
+  syncNowBtn.disabled = true;
+  chrome.runtime.sendMessage({ type: 'SYNC_NOW' }, resp => {
+    syncNowBtn.disabled = false;
+    if (resp?.ok) showStatus(syncStatusEl, 'Synced.', false);
+    else showStatus(syncStatusEl, resp?.error || 'Sync failed.', true);
+    refreshSyncStatus();
+  });
+});
+
 // ── Selection-widget configuration ───────────────────────────────────────────
 
 // Keep ACTION_META and DEFAULT_ACTION_ORDER in sync with content.js (no shared

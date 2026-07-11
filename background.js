@@ -1,5 +1,8 @@
 'use strict';
 
+// Google Drive cross-device sync (pull/merge/push engine + popup API).
+importScripts('sync.js');
+
 const GEMINI_MODEL_FLASH = 'gemini-2.5-flash';
 const GEMINI_MODEL_PRO = 'gemini-2.5-pro';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -358,6 +361,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     case 'CLEAR_DEBUG_LOG':
       debugBuffer = [];
       chrome.storage.local.set({ debugBuffer }, () => sendResponse({ ok: true }));
+      return true;
+    case 'SYNC_STATUS':
+      getSyncStatus().then(sendResponse);
+      return true;
+    case 'SYNC_CONNECT':
+      connectSync().then(sendResponse);
+      return true;
+    case 'SYNC_DISCONNECT':
+      disconnectSync().then(sendResponse);
+      return true;
+    case 'SYNC_NOW':
+      syncNow().then(sendResponse);
       return true;
   }
 });
@@ -832,18 +847,24 @@ async function handleCite({ selectedText, pageTitle, surroundingContext }) {
   }
 }
 
+// The CRUD below stamps `updatedAt` (sync merges per-annotation, newest wins),
+// records tombstones on delete (so deletes propagate instead of resurrecting),
+// and nudges the sync engine after each mutation / on page load.
+
 async function saveAnnotation({ url, annotation }) {
   const key = normalizeUrl(url);
   const result = await chrome.storage.local.get(key);
   const existing = result[key] || [];
-  existing.push(annotation);
+  existing.push({ ...annotation, updatedAt: annotation.createdAt || Date.now() });
   await chrome.storage.local.set({ [key]: existing });
+  scheduleSyncPush();
   return { success: true };
 }
 
 async function loadAnnotations(url) {
   const key = normalizeUrl(url);
   const result = await chrome.storage.local.get(key);
+  maybeSyncPull();
   return { annotations: result[key] || [] };
 }
 
@@ -852,8 +873,9 @@ async function updateAnnotation({ url, id, changes }) {
   const result = await chrome.storage.local.get(key);
   const existing = result[key] || [];
   await chrome.storage.local.set({
-    [key]: existing.map(a => (a.id === id ? { ...a, ...changes } : a))
+    [key]: existing.map(a => (a.id === id ? { ...a, ...changes, updatedAt: Date.now() } : a))
   });
+  scheduleSyncPush();
   return { success: true };
 }
 
@@ -862,11 +884,17 @@ async function deleteAnnotation({ url, id }) {
   const result = await chrome.storage.local.get(key);
   const existing = result[key] || [];
   await chrome.storage.local.set({ [key]: existing.filter(a => a.id !== id) });
+  await recordTombstones(key, [id]);
+  scheduleSyncPush();
   return { success: true };
 }
 
 async function clearPageAnnotations(url) {
   const key = normalizeUrl(url);
+  const result = await chrome.storage.local.get(key);
+  const existing = result[key] || [];
   await chrome.storage.local.remove(key);
+  await recordTombstones(key, existing.map(a => a.id).filter(Boolean));
+  scheduleSyncPush();
   return { success: true };
 }

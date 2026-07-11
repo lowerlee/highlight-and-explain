@@ -81,12 +81,14 @@ This README replaces the planned standalone *article-explorer* project: the same
 ## Repo layout
 
 ```
-manifest.json      MV3 manifest, host_permissions: <all_urls>
+manifest.json      MV3 manifest, host_permissions: <all_urls>, pinned extension ID
 background.js      Service worker: API calls, storage CRUD
+sync.js            Google Drive cross-device sync (pull/merge/push engine)
 content.js         Injected UI: selection capture, anchoring, sidebar, highlights
 content.css        Styles for the injected UI
-popup.html/.js/.css  Toolbar popup: API key, toggles, per-page controls
+popup.html/.js/.css  Toolbar popup: API key, toggles, sync, per-page controls
 icons/             Extension icons
+extension-key.pem  Private signing key (gitignored; public half lives in manifest.json)
 ```
 
 ## Setup
@@ -94,6 +96,71 @@ icons/             Extension icons
 1. `chrome://extensions` → Developer mode → Load unpacked → select this folder.
 2. Click the extension icon and paste a Gemini API key. (The Cite path will need additional credentials once built — search API, academic index access.)
 3. Highlight text on any page.
+
+## Cross-device sync
+
+Annotations can sync between computers through a private app folder in your own
+Google Drive (`appDataFolder` — invisible in the normal Drive UI, readable only
+by this extension). Settings and API keys already roam via `chrome.storage.sync`;
+this covers the annotations themselves.
+
+How it works: `sync.js` mirrors the whole annotation store to a single
+`annotations.json` in the app folder. Every sync is pull → merge → push:
+annotations merge per-id (newest `updatedAt` wins) and deletions propagate via
+tombstones, so a delete on one machine doesn't resurrect from another. Syncs
+run on service-worker spin-up, on the first page load after 5 minutes, and
+debounced a few seconds after every annotation change.
+
+### One-time OAuth setup
+
+The manifest pins the extension ID to `eohbhbchpmjmnefklgojfkelnmgibelh` (via
+the `"key"` field), so every machine that loads this folder gets the same ID —
+required for Google OAuth. Setup, once, in [Google Cloud
+Console](https://console.cloud.google.com):
+
+1. Create a project (any name).
+2. **APIs & Services → Library** → enable **Google Drive API**.
+3. **APIs & Services → OAuth consent screen**: External, fill in the app name
+   and your email, and add your own Google account as a **test user**. (Testing
+   mode is fine forever for personal use — no verification needed.)
+4. **APIs & Services → Credentials → Create credentials → OAuth client ID** →
+   application type **Chrome extension** → Item ID:
+   `eohbhbchpmjmnefklgojfkelnmgibelh`.
+5. Copy the client ID into `manifest.json` → `oauth2.client_id`, replacing the
+   `REPLACE_WITH_OAUTH_CLIENT_ID` placeholder.
+6. Reload the extension, open the popup, and click **Connect Google Drive**.
+
+On a second computer: clone this repo (with the client ID in the manifest),
+load unpacked, sign into the same Chrome profile — sync connects on its own,
+since the consent granted in step 6 applies account-wide.
+
+To undo everything: **Disconnect** in the popup (turns sync off on all
+machines and revokes the token), then optionally Drive → Settings → Manage
+apps → delete the stored data. Local annotations are never touched.
+
+### Migrating from a copy loaded before the ID was pinned
+
+Chrome keys `chrome.storage` to the extension ID, and adding `"key"` to the
+manifest changed that ID — so a copy loaded before the pin holds its
+annotations and API keys under the old ID. To carry them over, **before**
+reloading the new manifest: open the old extension's service-worker console
+(chrome://extensions → "service worker") and dump both stores:
+
+```js
+chrome.storage.local.get(null, d => console.log(JSON.stringify(d)));
+chrome.storage.sync.get(null, d => console.log(JSON.stringify(d)));
+```
+
+Save each JSON blob, reload the extension (it re-registers under the pinned
+ID), then in the new service-worker console:
+
+```js
+chrome.storage.local.set(JSON.parse(`<local blob>`));
+chrome.storage.sync.set(JSON.parse(`<sync blob>`));
+```
+
+Skipping this loses nothing on disk — the old data just sits under the retired
+ID — but annotations and API keys start empty under the new one.
 
 ## Open questions
 
