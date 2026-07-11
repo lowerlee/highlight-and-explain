@@ -7,7 +7,7 @@
   "permissions": ["storage", "activeTab", "scripting", "downloads", "identity", "identity.email"],
   "host_permissions": ["<all_urls>"],
   "oauth2": {
-    "client_id": "307179466030-fg94n9hak9tsrp2ql690lbkl1a1r3649.apps.googleusercontent.com.apps.googleusercontent.com",
+    "client_id": "307179466030-fg94n9hak9tsrp2ql690lbkl1a1r3649.apps.googleusercontent.com",
     "scopes": ["https://www.googleapis.com/auth/drive.appdata"]
   },
   "background": {
