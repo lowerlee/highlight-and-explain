@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "notes": "Known test pages for the AI Web Annotator QA team. Each site stresses a different rendering/anchoring scenario. Span hints are instructions, not exact strings — page text drifts; find the closest match. Every Explain click is a real Gemini API call, so stick to the listed spans.",
+  "sites": [
+    {
+      "id": "wikipedia-crispr",
+      "url": "https://en.wikipedia.org/wiki/CRISPR",
+      "stresses": ["dense reference-heavy DOM", "superscript citation markers inside sentences", "infoboxes and figures competing for layout"],
+      "spans": [
+        {
+          "hint": "In the lead paragraph, select the phrase 'clustered regularly interspaced short palindromic repeats' (or the closest technical phrase in the first paragraph)",
+          "mode": "explain"
+        },
+        {
+          "hint": "Select one full sentence that contains a superscript citation marker (e.g. [1]) in the middle of it",
+          "mode": "explain"
+        }
+      ],
+      "expect": [
+        "floating ✦ button appears adjacent to the selection, not off-screen",
+        "sidebar card renders a 2-4 sentence explanation with source links",
+        "highlight and card persist after page reload; citation superscript inside the span does not break anchoring"
+      ]
+    },
+    {
+      "id": "mdn-selection-api",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/Selection",
+      "stresses": ["docs site with code blocks", "selections inside <code>/<pre> elements", "sticky sidebar/TOC that may collide with injected UI"],
+      "spans": [
+        {
+          "hint": "Select a full sentence from the opening summary paragraph",
+          "mode": "explain"
+        },
+        {
+          "hint": "Select a method name or short snippet INSIDE a code block (e.g. getRangeAt inside a <pre>)",
+          "mode": "explain"
+        }
+      ],
+      "expect": [
+        "selection inside code blocks triggers the button and highlights render inside <pre> without breaking monospace layout",
+        "injected sidebar does not overlap or fight MDN's own sticky sidebar",
+        "persistence after reload for both spans"
+      ]
+    },
+    {
+      "id": "react-dev-spa",
+      "url": "https://react.dev/learn",
+      "stresses": ["JS-heavy SPA", "client-side routing (URL changes without full page load)", "content hydrated after document_idle"],
+      "spans": [
+        {
+          "hint": "Select a sentence from the first prose paragraph of the Quick Start content",
+          "mode": "explain"
+        }
+      ],
+      "expect": [
+        "annotation works despite hydration timing",
+        "after client-side navigating to another doc page and back (via sidebar links, no full reload), the highlight is restored or at minimum listed as orphaned — not silently lost",
+        "full reload restores the highlight"
+      ]
+    },
+    {
+      "id": "gutenberg-long-page",
+      "url": "https://www.gutenberg.org/cache/epub/1342/pg1342-images.html",
+      "stresses": ["extremely long single-page document", "re-anchoring performance across thousands of text nodes", "repeated similar phrases (prefix/suffix disambiguation)"],
+      "spans": [
+        {
+          "hint": "Select the famous opening line of Chapter 1 ('It is a truth universally acknowledged...')",
+          "mode": "explain"
+        },
+        {
+          "hint": "Scroll roughly halfway down the book and select any complete sentence there",
+          "mode": "explain"
+        }
+      ],
+      "expect": [
+        "no visible jank or long freeze when the content script re-anchors on reload",
+        "the mid-page highlight restores at the correct occurrence, not an earlier duplicate phrase",
+        "sidebar scroll-to-annotation works across a very long page"
+      ]
+    },
+    {
+      "id": "hn-legacy-table-layout",
+      "url": "https://news.ycombinator.com/item?id=1",
+      "stresses": ["ancient table-based layout", "very small font", "tightly packed links and metadata"],
+      "spans": [
+        {
+          "hint": "Select the text of one comment (a full sentence from any comment body)",
+          "mode": "explain"
+        }
+      ],
+      "expect": [
+        "button placement is usable despite cramped line-height",
+        "highlight does not distort the table layout",
+        "persistence after reload"
+      ]
+    },
+    {
+      "id": "obsidian-dark-theme",
+      "url": "https://obsidian.md",
+      "stresses": ["dark background", "highlight color contrast", "marketing-page typography (large headings, hero sections)"],
+      "spans": [
+        {
+          "hint": "Select a sentence of body copy (not a heading) on the landing page",
+          "mode": "explain"
+        },
+        {
+          "hint": "Select part of a large hero heading",
+          "mode": "custom",
+          "custom_question": "What product is this describing, in one sentence?"
+        }
+      ],
+      "expect": [
+        "highlight color remains legible against the dark background (text must stay readable)",
+        "floating button and tooltip are visible and styled sanely on dark pages",
+        "custom-question mode returns an answer card like explain mode does"
+      ]
+    }
+  ]
+}
